@@ -1,0 +1,26 @@
+[project]
+name = "csci1430_demos"
+version = "2026.0.0"
+description = "Interactive computer vision demos for CSCI 1430 at Brown University"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "James Tompkin", email = "james_tompkin@brown.edu" },
+    { name = "Srinath Sridhar", email = "srinath@brown.edu" },
+]
+dependencies = [
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "dearpygui>=1.9.0",
+    "scikit-image>=0.21.0",
+]
+
+[project.scripts]
+demo-launcher = "demo_launcher:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []
