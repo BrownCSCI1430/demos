@@ -13,6 +13,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Available demos with descriptions
 DEMOS = {
+    "Starter Template": {
+        "file": "liveStarter.py",
+        "description": "Minimal template for students to experiment with image processing. Edit process_frame() to see your changes!"
+    },
     "Image Filtering": {
         "file": "liveFilter.py",
         "description": "Apply convolution filters with adjustable kernel size."
