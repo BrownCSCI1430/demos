@@ -13,7 +13,7 @@ import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
-from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image
+from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
 from utils.demo_ui import setup_viewport, make_state_updater
 from utils.demo_kernels import KERNEL_PRESETS as _KERNEL_PRESETS, SIGMA_KERNELS, ZERO_DC_KERNELS, create_kernel, resize_kernel
 
@@ -295,16 +295,9 @@ def on_viewport_resize():
 
 def process_frame():
     """Capture and process a single frame."""
-    if state.use_camera and not state.cat_mode:
-        if state.cap is None or not state.cap.isOpened():
-            return None, None
-        ret, img = state.cap.read()
-        if not ret:
-            return None, None
-    else:
-        if state.fallback_image is None:
-            return None, None
-        img = state.fallback_image.copy()
+    img = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
+    if img is None:
+        return None, None
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 

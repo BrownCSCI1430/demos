@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import dearpygui.dearpygui as dpg
 
-from utils.demo_utils import convert_cv_to_dpg, resize_with_letterbox, init_camera, load_fallback_image
+from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
 from utils.demo_ui import add_global_controls, setup_viewport, make_state_updater
 
 # Default values
@@ -117,23 +117,6 @@ def process_frame(img):
     return output
 
 
-def get_frame():
-    """Capture a single frame from camera or fallback image"""
-    if state.use_camera and not state.cat_mode:
-        if state.cap is None or not state.cap.isOpened():
-            return None
-        ret, img = state.cap.read()
-        if not ret:
-            return None
-    else:
-        if state.fallback_image is None:
-            return None
-        img = state.fallback_image.copy()
-        img = resize_with_letterbox(img, state.frame_width, state.frame_height)
-
-    return img
-
-
 def main():
     # Initialize camera
     state.cap, state.frame_width, state.frame_height, state.use_camera = init_camera()
@@ -194,7 +177,7 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
-        img = get_frame()
+        img = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
 
         if img is not None:
             # Process the frame (student code goes in process_frame!)

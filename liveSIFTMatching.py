@@ -11,7 +11,7 @@ import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
-from utils.demo_utils import init_camera, load_fallback_image, DATA_DIR
+from utils.demo_utils import init_camera, load_fallback_image, get_frame, DATA_DIR
 from utils.demo_ui import setup_viewport, make_state_updater, make_reset_callback
 
 # Default values
@@ -178,12 +178,9 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
-        if state.use_camera and not state.cat_mode:
-            ret, frame = state.cap.read()
-            if not ret:
-                continue
-        else:
-            frame = state.fallback_image.copy()
+        frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
+        if frame is None:
+            continue
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 

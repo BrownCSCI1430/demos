@@ -14,7 +14,7 @@ import dearpygui.dearpygui as dpg
 from skimage import img_as_float
 from skimage.color import rgb2gray
 
-from utils.demo_utils import init_camera, load_fallback_image, convert_cv_to_dpg_float, crop_to_square
+from utils.demo_utils import init_camera, load_fallback_image, convert_cv_to_dpg_float, crop_to_square, get_frame
 from utils.demo_ui import setup_viewport, make_state_updater, make_reset_callback
 
 # Default values
@@ -392,17 +392,13 @@ def main():
     # Main loop
     while dpg.is_dearpygui_running():
         if not state.pause:
-            if state.use_camera and not state.cat_mode:
-                ret, frame = state.cap.read()
-                if ret:
-                    im = img_as_float(rgb2gray(frame))
-                    im = crop_to_square(im, state.frame_size)
-                else:
-                    im = np.random.rand(state.frame_size, state.frame_size)
-            else:
-                frame = state.fallback_image.copy()
+            frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
+            if frame is not None:
                 im = img_as_float(rgb2gray(frame))
                 im = crop_to_square(im, state.frame_size)
+            else:
+                # Camera read failed - use random noise
+                im = np.random.rand(state.frame_size, state.frame_size)
 
             if (state.image_rotation != 0 or state.image_translate_x != 0 or
                 state.image_translate_y != 0 or state.image_scale != 1.0):

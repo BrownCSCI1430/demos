@@ -11,7 +11,7 @@ import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
-from utils.demo_utils import (convert_cv_to_dpg, resize_with_letterbox, init_camera, load_fallback_image,
+from utils.demo_utils import (convert_cv_to_dpg, init_camera, load_fallback_image, get_frame,
                               apply_affine_transform, apply_brightness)
 from utils.demo_ui import setup_viewport, make_state_updater, make_reset_callback
 
@@ -308,14 +308,10 @@ def main():
     # Main loop
     while dpg.is_dearpygui_running():
         # Get frame
-        if state.use_camera and not state.cat_mode:
-            ret, img = state.cap.read()
-            if not ret:
-                continue
-        else:
-            img = state.fallback_image.copy()
-            if img.shape[1] != state.frame_width or img.shape[0] != state.frame_height:
-                img = resize_with_letterbox(img, state.frame_width, state.frame_height)
+        img = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode,
+                        (state.frame_width, state.frame_height))
+        if img is None:
+            continue
 
         # Handle pause
         if state.paused:
