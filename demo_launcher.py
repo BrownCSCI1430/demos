@@ -15,39 +15,48 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEMOS = {
     "Starter Template": {
         "file": "liveStarter.py",
-        "description": "Minimal template for students to experiment with image processing. Edit process_frame() to see your changes!"
+        "description": "Minimal template for students to experiment with image processing. Edit process_frame() to see your changes!",
+        "default_resolution": "640x480"
     },
     "Image Filtering": {
         "file": "liveFilter.py",
-        "description": "Apply convolution filters with adjustable kernel size."
+        "description": "Apply convolution filters with adjustable kernel size.",
+        "default_resolution": "640x480"
     },
     "Canny Edge Detection": {
         "file": "liveCannyEdges.py",
-        "description": "Real-time Canny edge detection with adjustable blur sigma and threshold parameters."
+        "description": "Real-time Canny edge detection with adjustable blur sigma and threshold parameters.",
+        "default_resolution": "640x480"
     },
     "Fourier Transform": {
         "file": "liveFFT.py",
-        "description": "Visualize 2D Fourier transforms with multiple modes: normal FFT, DC only, rotating dot, and frequency reconstruction."
+        "description": "Visualize 2D Fourier transforms with multiple modes: normal FFT, DC only, rotating dot, and frequency reconstruction.",
+        "default_resolution": "320x240"
     },
     "Convolution Theorem": {
         "file": "liveConvolutionTheorem.py",
-        "description": "Demonstrates convolution theorem: spatial convolution equals frequency multiplication. Includes deconvolution mode with regularization."
+        "description": "Demonstrates convolution theorem: spatial convolution equals frequency multiplication. Includes deconvolution mode with regularization.",
+        "default_resolution": "320x240"
     },
     "Harris Corner Detection": {
         "file": "liveHarrisCorners.py",
-        "description": "Detect corners using Harris corner detector with tunable parameters."
+        "description": "Detect corners using Harris corner detector with tunable parameters.",
+        "default_resolution": "640x480"
     },
     "SIFT Feature Matching": {
         "file": "liveSIFTMatching.py",
-        "description": "Match SIFT features between a query image and live camera feed."
+        "description": "Match SIFT features between a query image and live camera feed.",
+        "default_resolution": "640x480"
     },
     "HOG Person Detection": {
         "file": "liveHOGPersonDetector.py",
-        "description": "Detect people using Histogram of Oriented Gradients (HOG) features."
+        "description": "Detect people using Histogram of Oriented Gradients (HOG) features.",
+        "default_resolution": "640x480"
     },
     "Viola-Jones Face Detection": {
         "file": "liveViolaJones.py",
-        "description": "Detect faces using Haar cascade classifiers with multiple cascade options."
+        "description": "Detect faces using Haar cascade classifiers with multiple cascade options.",
+        "default_resolution": "640x480"
     },
 }
 
@@ -67,6 +76,10 @@ def select_demo(sender, app_data, user_data):
     state.selected_demo = user_data
     demo_info = DEMOS[user_data]
     dpg.set_value("description_text", demo_info["description"])
+
+    # Set resolution combo to "Default" to use demo's default resolution
+    dpg.set_value("resolution_combo", "Default")
+
     dpg.configure_item("run_button", enabled=True)
 
 def run_demo():
@@ -83,18 +96,30 @@ def run_demo():
 
     dpg.set_value("status_text", f"Launching {state.selected_demo}...")
 
+    # Get resolution setting
+    resolution = dpg.get_value("resolution_combo")
+    cmd = [sys.executable, demo_path]
+
+    # Use demo's default if "Default" is selected, otherwise use the selected resolution
+    if resolution == "Default":
+        resolution = DEMOS[state.selected_demo].get("default_resolution", "640x480")
+
+    if resolution and 'x' in resolution:
+        width, height = resolution.split('x')
+        cmd.extend(['--width', width, '--height', height])
+
     # Launch demo as subprocess
     try:
         if sys.platform == 'win32':
             # On Windows, use CREATE_NEW_CONSOLE to give it its own window
             state.running_process = subprocess.Popen(
-                [sys.executable, demo_path],
+                cmd,
                 creationflags=subprocess.CREATE_NEW_CONSOLE
             )
         else:
-            state.running_process = subprocess.Popen([sys.executable, demo_path])
+            state.running_process = subprocess.Popen(cmd)
 
-        dpg.set_value("status_text", f"Running: {state.selected_demo}")
+        dpg.set_value("status_text", f"Running: {state.selected_demo} ({resolution})")
     except Exception as e:
         dpg.set_value("status_text", f"Error: {str(e)}")
 
@@ -121,6 +146,22 @@ def main():
             callback=update_ui_scale,
             width=200
         )
+        dpg.add_separator()
+        dpg.add_spacer(height=10)
+
+        # Camera resolution control
+        dpg.add_text("Camera Settings:")
+        with dpg.group(horizontal=True):
+            dpg.add_combo(
+                label="Resolution",
+                items=["Default", "320x240", "640x480", "1280x720", "1920x1080", "3840x2160"],
+                default_value="Default",
+                tag="resolution_combo",
+                width=150
+            )
+            dpg.add_text("?", color=(150, 150, 150))
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text("Camera resolution to request.\nNote: Not all cameras support all resolutions.\n'Default' uses the demo's recommended resolution.")
         dpg.add_separator()
         dpg.add_spacer(height=10)
 

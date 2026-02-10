@@ -208,13 +208,17 @@ def process_fft(im):
 
 
 def main():
-    # Initialize camera
-    state.cap, _, _, state.use_camera = init_camera()
+    # Parse command-line arguments
+    import argparse
+    parser = argparse.ArgumentParser(description='Fourier Transform Demo')
+    parser.add_argument('--width', type=int, default=320, help='Camera width')
+    parser.add_argument('--height', type=int, default=240, help='Camera height')
+    args = parser.parse_args()
 
-    if state.use_camera:
-        state.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-        state.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-    else:
+    # Initialize camera with optional resolution
+    state.cap, _, _, state.use_camera = init_camera(width=args.width, height=args.height)
+
+    if not state.use_camera:
         print("Warning: No camera found, using fallback image")
 
     # Load fallback image

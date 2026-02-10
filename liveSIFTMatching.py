@@ -16,7 +16,7 @@ from utils.demo_ui import setup_viewport, make_state_updater, make_reset_callbac
 
 # Default values
 DEFAULTS = {
-    "match_distance": 0.75,
+    "match_distance": 0.55,
     "show_matches": True,
     "ui_scale": 1.5,
 }
@@ -28,6 +28,12 @@ class State:
     cap = None
     frame_width = 640
     frame_height = 480
+    texture_width = 1280  # Will be updated dynamically
+    texture_height = 480
+    texture_needs_recreate = False  # Flag to recreate texture in main loop
+    texture_registry = None  # Store texture registry reference
+    texture_counter = 0  # Counter for unique texture tags
+    current_texture_tag = "matching_texture_0"  # Current texture tag in use
     query_image = None
     query_index = 0
     match_distance = DEFAULTS["match_distance"]
@@ -49,7 +55,8 @@ def update_image_sizes():
     available_width = vp_width - 50
     available_height = vp_height - 220
 
-    aspect_ratio = 2.0
+    # Use actual texture aspect ratio instead of hardcoded value
+    aspect_ratio = state.texture_width / state.texture_height
 
     img_width = available_width
     img_height = int(img_width / aspect_ratio)
@@ -71,9 +78,42 @@ def update_query_image(sender, value):
     state.query_index = idx
     if idx < len(state.images):
         state.query_image = cv2.imread(state.images[idx], 0)
+        # Normalize to camera height while preserving aspect ratio
+        if state.query_image is not None and state.query_image.size > 0:
+            query_height = state.frame_height
+            h, w = state.query_image.shape[:2]
+
+            # Validate dimensions
+            if h <= 0 or w <= 0:
+                print(f"Warning: Invalid image dimensions {w}x{h}")
+                return
+
+            aspect_ratio = w / h
+            query_width = int(query_height * aspect_ratio)
+
+            # Ensure minimum dimensions
+            if query_width < 1 or query_height < 1:
+                print(f"Warning: Calculated dimensions too small {query_width}x{query_height}")
+                return
+
+            state.query_image = cv2.resize(state.query_image, (query_width, query_height))
+
+            # Update texture dimensions for side-by-side display
+            state.texture_width = query_width + state.frame_width
+
+            # Set flag to recreate texture in main loop
+            # Note: Don't call update_image_sizes() here - it will be called after texture recreation
+            state.texture_needs_recreate = True
 
 
 def main():
+    # Parse command-line arguments
+    import argparse
+    parser = argparse.ArgumentParser(description='SIFT Feature Matching Demo')
+    parser.add_argument('--width', type=int, default=None, help='Camera width')
+    parser.add_argument('--height', type=int, default=None, help='Camera height')
+    args = parser.parse_args()
+
     # Find image files in data directory
     file_prefix = DATA_DIR + '/'
 
@@ -90,14 +130,24 @@ def main():
         state.images = [""]
         state.image_names = ["No images"]
 
-    # Load first query image
+    # Initialize camera first to get correct dimensions
+    state.cap, state.frame_width, state.frame_height, state.use_camera = \
+        init_camera(width=args.width, height=args.height)
+
+    # Load first query image after camera initialization
     if state.images[0] and os.path.exists(state.images[0]):
         state.query_image = cv2.imread(state.images[0], 0)
+        # Normalize query image to match camera height while preserving aspect ratio
+        if state.query_image is not None and state.query_image.size > 0:
+            query_height = state.frame_height
+            h, w = state.query_image.shape[:2]
+            if h > 0 and w > 0:
+                aspect_ratio = w / h
+                query_width = int(query_height * aspect_ratio)
+                if query_width > 0 and query_height > 0:
+                    state.query_image = cv2.resize(state.query_image, (query_width, query_height))
     else:
         state.query_image = np.zeros((100, 100), dtype=np.uint8)
-
-    # Initialize camera
-    state.cap, state.frame_width, state.frame_height, state.use_camera = init_camera()
 
     if not state.use_camera:
         print("Warning: Could not open camera, using fallback image")
@@ -110,14 +160,21 @@ def main():
     # Initialize SIFT
     detector = cv2.SIFT_create()
 
+    # Calculate dynamic texture size based on camera and query dimensions
+    query_width = state.query_image.shape[1] if state.query_image is not None and state.query_image.size > 0 else state.frame_width
+    state.texture_width = query_width + state.frame_width  # Side-by-side width
+    state.texture_height = state.frame_height  # Fixed height matches camera
+
     dpg.create_context()
 
-    # Create texture - use fixed size for stable rendering
-    texture_width, texture_height = 1280, 480
-    with dpg.texture_registry():
-        blank_data = [0.0] * (texture_width * texture_height * 4)
-        dpg.add_raw_texture(texture_width, texture_height, blank_data,
-                          format=dpg.mvFormat_Float_rgba, tag="matching_texture")
+    # Create texture registry and initial texture
+    texture_width, texture_height = state.texture_width, state.texture_height
+    state.texture_registry = dpg.add_texture_registry()
+    blank_data = [0.0] * (texture_width * texture_height * 4)
+    state.current_texture_tag = "matching_texture_0"
+    dpg.add_raw_texture(texture_width, texture_height, blank_data,
+                      format=dpg.mvFormat_Float_rgba, tag=state.current_texture_tag,
+                      parent=state.texture_registry)
 
     with dpg.window(label="SIFT Matching Demo", tag="main_window"):
         # Top row controls
@@ -167,7 +224,7 @@ def main():
         dpg.add_separator()
 
         dpg.add_text("SIFT Feature Matching (Query | Live)")
-        dpg.add_image("matching_texture", tag="matching_image")
+        dpg.add_image(state.current_texture_tag, tag="matching_image")
 
     # Setup viewport
     setup_viewport("CSCI 1430 - SIFT Matching",
@@ -178,6 +235,42 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
+        # Recreate texture when query image changes
+        if state.texture_needs_recreate:
+            # Validate texture dimensions before recreating
+            if state.texture_width < 1 or state.texture_height < 1:
+                print(f"Warning: Invalid texture dimensions {state.texture_width}x{state.texture_height}, skipping recreation")
+                state.texture_needs_recreate = False
+                continue
+
+            # Save old texture tag
+            old_texture_tag = state.current_texture_tag
+
+            # Create new texture with unique tag BEFORE deleting old one
+            state.texture_counter += 1
+            new_texture_tag = f"matching_texture_{state.texture_counter}"
+            blank_data = [0.0] * (state.texture_width * state.texture_height * 4)
+            dpg.add_raw_texture(state.texture_width, state.texture_height, blank_data,
+                              format=dpg.mvFormat_Float_rgba, tag=new_texture_tag,
+                              parent=state.texture_registry)
+
+            # Rebind image widget to the new texture
+            if dpg.does_item_exist("matching_image"):
+                dpg.configure_item("matching_image", texture_tag=new_texture_tag)
+
+            # Update current texture tag
+            state.current_texture_tag = new_texture_tag
+
+            # Now delete the old texture
+            if dpg.does_item_exist(old_texture_tag):
+                dpg.delete_item(old_texture_tag)
+
+            # Update display size to match new aspect ratio
+            update_image_sizes()
+
+            state.texture_needs_recreate = False
+            continue  # Skip frame processing during recreation to prevent timing issues
+
         frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
         if frame is None:
             continue
@@ -193,9 +286,11 @@ def main():
                 bf = cv2.BFMatcher()
                 matches = bf.knnMatch(des1, des2, k=2)
 
-                for m, n in matches:
-                    if m.distance < state.match_distance * n.distance:
-                        good_matches.append([m])
+                for match in matches:
+                    if len(match) == 2:  # Only process if we got 2 matches
+                        m, n = match
+                        if m.distance < state.match_distance * n.distance:
+                            good_matches.append([m])
 
             if state.show_matches:
                 output = cv2.drawMatchesKnn(state.query_image, kp1, gray, kp2, good_matches,
@@ -210,14 +305,17 @@ def main():
             output = gray
             good_matches = []
 
-        # Update texture - resize output to fixed texture size
+        # Update texture - resize output to match texture size
         if len(output.shape) == 2:
             output = cv2.cvtColor(output, cv2.COLOR_GRAY2BGR)
 
-        output = cv2.resize(output, (texture_width, texture_height))
+        output = cv2.resize(output, (state.texture_width, state.texture_height))
         output_rgba = cv2.cvtColor(output, cv2.COLOR_BGR2RGBA)
         output_data = (output_rgba.astype(np.float32) / 255.0).flatten()
-        dpg.set_value("matching_texture", output_data)
+
+        # CRITICAL: Skip texture update if recreation is in progress to prevent buffer size mismatch
+        if not state.texture_needs_recreate:
+            dpg.set_value(state.current_texture_tag, output_data)
 
         status = f"Good Matches: {len(good_matches)}  |  Distance Ratio: {state.match_distance:.2f}"
         dpg.set_value("status_text", status)

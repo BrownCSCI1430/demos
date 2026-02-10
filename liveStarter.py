@@ -118,8 +118,16 @@ def process_frame(img):
 
 
 def main():
-    # Initialize camera
-    state.cap, state.frame_width, state.frame_height, state.use_camera = init_camera()
+    # Parse command-line arguments
+    import argparse
+    parser = argparse.ArgumentParser(description='Starter Template Demo')
+    parser.add_argument('--width', type=int, default=None, help='Camera width')
+    parser.add_argument('--height', type=int, default=None, help='Camera height')
+    args = parser.parse_args()
+
+    # Initialize camera with optional resolution
+    state.cap, state.frame_width, state.frame_height, state.use_camera = \
+        init_camera(width=args.width, height=args.height)
 
     if not state.use_camera:
         print("Warning: Could not open camera, using fallback image")

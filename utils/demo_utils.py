@@ -59,11 +59,13 @@ def resize_with_letterbox(img, target_width, target_height):
     return canvas
 
 
-def init_camera(camera_id=0):
+def init_camera(camera_id=0, width=None, height=None):
     """Initialize camera with platform-specific backend.
 
     Args:
         camera_id: Camera device ID (default 0)
+        width: Requested frame width (None for default)
+        height: Requested frame height (None for default)
 
     Returns:
         Tuple of (cap, frame_width, frame_height, use_camera)
@@ -78,9 +80,28 @@ def init_camera(camera_id=0):
         cap = cv2.VideoCapture(camera_id)
 
     if cap.isOpened():
+        # Set resolution if specified
+        if width is not None:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        if height is not None:
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
         ret, frame = cap.read()
         if ret:
-            return cap, frame.shape[1], frame.shape[0], True
+            # Return actual resolution obtained (may differ from requested)
+            actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+            # Log resolution info
+            if width is not None and height is not None:
+                if actual_width != width or actual_height != height:
+                    print(f"Camera: Requested {width}x{height}, got {actual_width}x{actual_height}")
+                else:
+                    print(f"Camera: Using {actual_width}x{actual_height}")
+            else:
+                print(f"Camera: Default resolution {actual_width}x{actual_height}")
+
+            return cap, actual_width, actual_height, True
         cap.release()
 
     return None, 0, 0, False
