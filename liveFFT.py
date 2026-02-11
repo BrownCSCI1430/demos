@@ -25,6 +25,8 @@ DEFAULTS = {
     "image_translate_x": 0.0,
     "image_translate_y": 0.0,
     "image_scale": 1.0,
+    "brightness_scale": 1.0,
+    "brightness_shift": 0.0,
     "dc_zero": False,
     "pause": False,
     "animate_magnitude": True,
@@ -39,7 +41,8 @@ class State:
     cap = None
     use_camera = True
     cat_mode = False
-    frame_size = 240  # Square frame size
+    frame_size = 240  # Square frame size for FFT processing
+    display_size = 480  # Upscaled size for display (reduces aliasing)
     fallback_image = None
 
     # Display mode
@@ -52,6 +55,8 @@ class State:
     image_translate_x = DEFAULTS["image_translate_x"]
     image_translate_y = DEFAULTS["image_translate_y"]
     image_scale = DEFAULTS["image_scale"]
+    brightness_scale = DEFAULTS["brightness_scale"]
+    brightness_shift = DEFAULTS["brightness_shift"]
     dc_zero = DEFAULTS["dc_zero"]
     pause = DEFAULTS["pause"]
     show_text = True
@@ -93,6 +98,8 @@ def on_viewport_resize():
 def update_mode(sender, value):
     modes = {"Normal FFT": 0, "DC Only": 1, "Rotating Dot": 2, "Frequency Reconstruction": 3}
     state.mode = modes.get(value, 0)
+    if dpg.does_item_exist("animation_panel"):
+        dpg.configure_item("animation_panel", show=(state.mode == 2))
 
 
 def transform_image(image, angle_degrees, translate_x, translate_y, scale):
@@ -108,13 +115,13 @@ def transform_image(image, angle_degrees, translate_x, translate_y, scale):
             image = np.roll(image, shift_y, axis=0)
         return image
 
-    # Combined transform: use warpAffine with INTER_NEAREST
+    # Combined transform: use warpAffine with INTER_LINEAR
     center = (w / 2, h / 2)
     rotation_matrix = cv2.getRotationMatrix2D(center, angle_degrees, scale)
     rotation_matrix[0, 2] += translate_x * w / 100.0
     rotation_matrix[1, 2] += translate_y * h / 100.0
     return cv2.warpAffine(image, rotation_matrix, (w, h),
-                          flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_WRAP)
+                          flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_WRAP)
 
 
 def process_fft(im):
@@ -227,15 +234,16 @@ def main():
         state.cat_mode = True
 
     size = state.frame_size
+    dsize = state.display_size
 
     dpg.create_context()
 
     with dpg.texture_registry():
-        blank_data = [0.0] * (size * size * 4)
-        dpg.add_raw_texture(size, size, blank_data, format=dpg.mvFormat_Float_rgba, tag="input_texture")
-        dpg.add_raw_texture(size, size, blank_data, format=dpg.mvFormat_Float_rgba, tag="inverse_texture")
-        dpg.add_raw_texture(size, size, blank_data, format=dpg.mvFormat_Float_rgba, tag="amplitude_texture")
-        dpg.add_raw_texture(size, size, blank_data, format=dpg.mvFormat_Float_rgba, tag="phase_texture")
+        blank_data = [0.0] * (dsize * dsize * 4)
+        dpg.add_raw_texture(dsize, dsize, blank_data, format=dpg.mvFormat_Float_rgba, tag="input_texture")
+        dpg.add_raw_texture(dsize, dsize, blank_data, format=dpg.mvFormat_Float_rgba, tag="inverse_texture")
+        dpg.add_raw_texture(dsize, dsize, blank_data, format=dpg.mvFormat_Float_rgba, tag="amplitude_texture")
+        dpg.add_raw_texture(dsize, dsize, blank_data, format=dpg.mvFormat_Float_rgba, tag="phase_texture")
 
     with dpg.window(label="Fourier Transform Demo", tag="main_window"):
         # Global controls row
@@ -272,9 +280,9 @@ def main():
 
         # Parameters using child_window containers
         with dpg.group(horizontal=True):
-            # Column 1: Fourier Parameters
+            # Column 1: Input Brightness
             with dpg.child_window(width=300, height=130, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Fourier Parameters", default_open=True):
+                with dpg.collapsing_header(label="Input Brightness", default_open=True):
                     with dpg.table(header_row=False,
                                    borders_innerV=False, borders_outerV=False,
                                    borders_innerH=False, borders_outerH=False,
@@ -284,38 +292,30 @@ def main():
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 
                         with dpg.table_row():
-                            dpg.add_text("Amplitude")
-                            dpg.add_slider_float(tag="amplitude_slider", default_value=state.amplitude_scalar,
-                                                 min_value=0.1, max_value=5.0,
-                                                 callback=make_state_updater(state, "amplitude_scalar"),
+                            dpg.add_text("Scale")
+                            dpg.add_slider_float(tag="brightness_scale_slider", default_value=state.brightness_scale,
+                                                 min_value=0.0, max_value=3.0,
+                                                 callback=make_state_updater(state, "brightness_scale"),
                                                  width=60, format="%.2f")
                             dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "amplitude_scalar", "amplitude_slider", DEFAULTS["amplitude_scalar"]),
+                                           callback=make_reset_callback(state, "brightness_scale", "brightness_scale_slider", DEFAULTS["brightness_scale"]),
                                            width=25)
 
                         with dpg.table_row():
-                            dpg.add_text("Phase")
-                            dpg.add_slider_float(tag="phase_slider", default_value=state.phase_offset,
-                                                 min_value=-3.14, max_value=3.14,
-                                                 callback=make_state_updater(state, "phase_offset"),
+                            dpg.add_text("Shift")
+                            dpg.add_slider_float(tag="brightness_shift_slider", default_value=state.brightness_shift,
+                                                 min_value=-1.0, max_value=1.0,
+                                                 callback=make_state_updater(state, "brightness_shift"),
                                                  width=60, format="%.2f")
                             dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "phase_offset", "phase_slider", DEFAULTS["phase_offset"]),
+                                           callback=make_reset_callback(state, "brightness_shift", "brightness_shift_slider", DEFAULTS["brightness_shift"]),
                                            width=25)
-
-                    with dpg.group(horizontal=True):
-                        dpg.add_checkbox(label="Zero DC", default_value=state.dc_zero,
-                                       callback=make_state_updater(state, "dc_zero"))
-                        dpg.add_checkbox(label="Anim Mag", default_value=state.animate_magnitude,
-                                       callback=make_state_updater(state, "animate_magnitude"))
-                        dpg.add_checkbox(label="Anim Ori", default_value=state.animate_orientation,
-                                       callback=make_state_updater(state, "animate_orientation"))
 
             dpg.add_spacer(width=10)
 
-            # Column 2: Transforms
+            # Column 2: Input Transforms
             with dpg.child_window(width=320, height=160, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Transforms", default_open=True):
+                with dpg.collapsing_header(label="Input Transforms", default_open=True):
                     with dpg.table(header_row=False,
                                    borders_innerV=False, borders_outerV=False,
                                    borders_innerH=False, borders_outerH=False,
@@ -364,8 +364,53 @@ def main():
                                            callback=make_reset_callback(state, "image_translate_y", "translate_y_slider", DEFAULTS["image_translate_y"]),
                                            width=25)
 
-        dpg.add_separator()
-        dpg.add_text("", tag="status_text")
+            dpg.add_spacer(width=10)
+
+            # Column 3: Fourier Parameters
+            with dpg.child_window(width=380, height=130, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Fourier Parameters", default_open=True):
+                    with dpg.table(header_row=False,
+                                   borders_innerV=False, borders_outerV=False,
+                                   borders_innerH=False, borders_outerH=False,
+                                   policy=dpg.mvTable_SizingFixedFit):
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=160)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
+
+                        with dpg.table_row():
+                            dpg.add_text("Amplitude Scale")
+                            dpg.add_slider_float(tag="amplitude_slider", default_value=state.amplitude_scalar,
+                                                 min_value=0.1, max_value=5.0,
+                                                 callback=make_state_updater(state, "amplitude_scalar"),
+                                                 width=60, format="%.2f")
+                            dpg.add_button(label="R",
+                                           callback=make_reset_callback(state, "amplitude_scalar", "amplitude_slider", DEFAULTS["amplitude_scalar"]),
+                                           width=25)
+
+                        with dpg.table_row():
+                            dpg.add_text("Phase Offset")
+                            dpg.add_slider_float(tag="phase_slider", default_value=state.phase_offset,
+                                                 min_value=-3.14, max_value=3.14,
+                                                 callback=make_state_updater(state, "phase_offset"),
+                                                 width=60, format="%.2f")
+                            dpg.add_button(label="R",
+                                           callback=make_reset_callback(state, "phase_offset", "phase_slider", DEFAULTS["phase_offset"]),
+                                           width=25)
+
+                    dpg.add_checkbox(label="Zero DC", default_value=state.dc_zero,
+                                   callback=make_state_updater(state, "dc_zero"))
+
+            dpg.add_spacer(width=10)
+
+            # Column 4: Animation (only visible in Rotating Dot mode)
+            with dpg.child_window(width=200, height=130, border=False, no_scrollbar=True,
+                                  tag="animation_panel", show=False):
+                with dpg.collapsing_header(label="Animation", default_open=True):
+                    dpg.add_checkbox(label="Animate Magnitude", default_value=state.animate_magnitude,
+                                   callback=make_state_updater(state, "animate_magnitude"))
+                    dpg.add_checkbox(label="Animate Orientation", default_value=state.animate_orientation,
+                                   callback=make_state_updater(state, "animate_orientation"))
+
         dpg.add_separator()
 
         # 2x2 grid of images
@@ -390,6 +435,7 @@ def main():
     setup_viewport("CSCI 1430 - Fourier Transform",
                    max(size * 2 + 100, 650), size * 2 + 280,
                    "main_window", on_viewport_resize, DEFAULTS["ui_scale"])
+    dpg.maximize_viewport()
 
     update_image_sizes()
 
@@ -410,21 +456,18 @@ def main():
                                     state.image_translate_x, state.image_translate_y,
                                     state.image_scale)
 
+            if state.brightness_scale != 1.0 or state.brightness_shift != 0.0:
+                im = np.clip(im * state.brightness_scale + state.brightness_shift, 0, 1)
+
             inverse, amplitude, phase = process_fft(im)
 
             blank_input = state.mode in [1, 2]
-            dpg.set_value("input_texture", convert_cv_to_dpg_float(np.zeros_like(im) if blank_input else im))
-            dpg.set_value("inverse_texture", convert_cv_to_dpg_float(np.clip(inverse, 0, 1)))
-            dpg.set_value("amplitude_texture", convert_cv_to_dpg_float(amplitude))
-            dpg.set_value("phase_texture", convert_cv_to_dpg_float(phase))
-
-            modes = ["Normal FFT", "DC Only", "Rotating Dot", "Frequency Reconstruction"]
-            status = f"Mode: {modes[state.mode]}"
-            if state.mode == 2:
-                status += f"  |  Mag: {state.magnitude}  |  Orient: {state.orientation:.2f}"
-            elif state.mode == 3:
-                status += f"  |  Cutoff: {state.amplitude_cutoff}"
-            dpg.set_value("status_text", status)
+            ds = (state.display_size, state.display_size)
+            up = lambda img: cv2.resize(img.astype(np.float32), ds, interpolation=cv2.INTER_CUBIC)
+            dpg.set_value("input_texture", convert_cv_to_dpg_float(up(np.zeros_like(im) if blank_input else im)))
+            dpg.set_value("inverse_texture", convert_cv_to_dpg_float(up(np.clip(inverse, 0, 1))))
+            dpg.set_value("amplitude_texture", convert_cv_to_dpg_float(up(amplitude)))
+            dpg.set_value("phase_texture", convert_cv_to_dpg_float(up(phase)))
 
         dpg.render_dearpygui_frame()
 

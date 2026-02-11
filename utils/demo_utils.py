@@ -211,7 +211,7 @@ def crop_to_square(image, target_size=None):
         image = image[crop:crop + w, :]
 
     if target_size is not None:
-        image = cv2.resize(image, (target_size, target_size))
+        image = cv2.resize(image, (target_size, target_size), interpolation=cv2.INTER_AREA)
 
     return image
 

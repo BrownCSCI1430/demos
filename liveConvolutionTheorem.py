@@ -123,6 +123,9 @@ def draw_deconvolution_symbol(drawlist_tag):
 
 def update_mode(sender, value):
     state.mode = value
+    is_deconv = state.mode == "Deconvolution"
+    if dpg.does_item_exist("regularization_panel"):
+        dpg.configure_item("regularization_panel", show=is_deconv)
     if state.mode == "Convolution":
         if dpg.does_item_exist("spatial_operator_drawing"):
             draw_convolution_symbol("spatial_operator_drawing")
@@ -154,6 +157,12 @@ def update_mode(sender, value):
 def regenerate_random_kernel():
     """Generate a new random kernel"""
     state.random_kernel = None
+
+
+def update_kernel_type(sender, value):
+    state.kernel_type = value
+    if dpg.does_item_exist("randomize_button"):
+        dpg.configure_item("randomize_button", show=(value == "Random"))
 
 
 def update_kernel_size(sender, value):
@@ -238,58 +247,63 @@ def main():
 
         dpg.add_separator()
 
-        # Parameters section
-        with dpg.collapsing_header(label="Parameters", default_open=True):
-            with dpg.table(header_row=False,
-                           borders_innerV=False, borders_outerV=False,
-                           borders_innerH=False, borders_outerH=False,
-                           policy=dpg.mvTable_SizingFixedFit):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=60)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=60)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=70)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
+        # Parameters using child_window containers
+        with dpg.group(horizontal=True):
+            # Column 1: Kernel
+            with dpg.child_window(width=420, height=160, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Kernel", default_open=True):
+                    with dpg.table(header_row=False,
+                                   borders_innerV=False, borders_outerV=False,
+                                   borders_innerH=False, borders_outerH=False,
+                                   policy=dpg.mvTable_SizingFixedFit):
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
 
-                with dpg.table_row():
-                    dpg.add_text("Kernel")
-                    dpg.add_combo(tag="kernel_combo", items=KERNELS, default_value=state.kernel_type,
-                                  callback=make_state_updater(state, "kernel_type"), width=80)
-                    dpg.add_button(label="Random", callback=regenerate_random_kernel)
-                    dpg.add_spacer(width=20)
-                    dpg.add_text("Regularize")
-                    dpg.add_checkbox(tag="reg_checkbox", default_value=state.use_regularization,
-                                     callback=make_state_updater(state, "use_regularization"))
-                    dpg.add_spacer(width=25)
+                        with dpg.table_row():
+                            dpg.add_text("Kernel Type")
+                            dpg.add_combo(tag="kernel_combo", items=KERNELS, default_value=state.kernel_type,
+                                          callback=update_kernel_type, width=100)
 
-                with dpg.table_row():
-                    dpg.add_text("Size")
-                    dpg.add_slider_int(tag="kernel_size_slider", default_value=state.kernel_size,
-                                       min_value=3, max_value=51, callback=update_kernel_size, width=80)
-                    dpg.add_spacer(width=60)
-                    dpg.add_spacer(width=20)
-                    dpg.add_text("Reg Value")
-                    dpg.add_slider_float(tag="reg_slider", default_value=state.regularization,
-                                         min_value=0.0001, max_value=0.5,
-                                         callback=make_state_updater(state, "regularization"),
-                                         width=80, format="%.4f")
-                    dpg.add_spacer(width=25)
+                        with dpg.table_row():
+                            dpg.add_text("Kernel Size")
+                            dpg.add_slider_int(tag="kernel_size_slider", default_value=state.kernel_size,
+                                               min_value=3, max_value=51, callback=update_kernel_size, width=100)
 
-                with dpg.table_row():
-                    dpg.add_text("Sigma")
-                    dpg.add_slider_float(tag="sigma_slider", default_value=state.gaussian_sigma,
-                                         min_value=0.1, max_value=15.0,
-                                         callback=make_state_updater(state, "gaussian_sigma"),
-                                         width=80, format="%.1f")
-                    dpg.add_spacer(width=60)
-                    dpg.add_spacer(width=20)
-                    dpg.add_spacer(width=70)
-                    dpg.add_spacer(width=100)
-                    dpg.add_spacer(width=25)
+                        with dpg.table_row():
+                            dpg.add_text("Gaussian Sigma")
+                            dpg.add_slider_float(tag="sigma_slider", default_value=state.gaussian_sigma,
+                                                 min_value=0.1, max_value=15.0,
+                                                 callback=make_state_updater(state, "gaussian_sigma"),
+                                                 width=100, format="%.1f")
 
-        dpg.add_separator()
-        dpg.add_text("", tag="status_text")
+                    dpg.add_button(label="Regenerate Random Kernel", callback=regenerate_random_kernel,
+                                   tag="randomize_button", show=(state.kernel_type == "Random"))
+
+            dpg.add_spacer(width=10)
+
+            # Column 2: Regularization (only visible in Deconvolution mode)
+            with dpg.child_window(width=420, height=160, border=False, no_scrollbar=True,
+                                  tag="regularization_panel", show=False):
+                with dpg.collapsing_header(label="Regularization", default_open=True):
+                    with dpg.table(header_row=False,
+                                   borders_innerV=False, borders_outerV=False,
+                                   borders_innerH=False, borders_outerH=False,
+                                   policy=dpg.mvTable_SizingFixedFit):
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=210)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
+
+                        with dpg.table_row():
+                            dpg.add_text("Enable Regularization")
+                            dpg.add_checkbox(tag="reg_checkbox", default_value=state.use_regularization,
+                                             callback=make_state_updater(state, "use_regularization"))
+
+                        with dpg.table_row():
+                            dpg.add_text("Regularization Value")
+                            dpg.add_slider_float(tag="reg_slider", default_value=state.regularization,
+                                                 min_value=0.0001, max_value=0.5,
+                                                 callback=make_state_updater(state, "regularization"),
+                                                 width=80, format="%.4f")
+
         dpg.add_separator()
 
         # Spatial domain row
@@ -347,6 +361,7 @@ def main():
     setup_viewport("CSCI 1430 - Convolution Theorem",
                    size * 3 + 350, size * 2 + 500,
                    "main_window", on_viewport_resize, DEFAULTS["ui_scale"])
+    dpg.maximize_viewport()
 
     update_image_sizes()
 
@@ -406,14 +421,6 @@ def main():
             dpg.set_value("image_fft_texture", convert_cv_to_dpg_float(image_fft_vis))
             dpg.set_value("kernel_fft_texture", convert_cv_to_dpg_float(kernel_fft_vis))
             dpg.set_value("product_fft_texture", convert_cv_to_dpg_float(product_fft_vis))
-
-            status = f"Mode: {state.mode}  |  Kernel: {state.kernel_type} ({state.kernel_size}x{state.kernel_size})"
-            if state.mode == "Deconvolution":
-                if state.use_regularization:
-                    status += f"  |  Reg: {state.regularization:.4f}"
-                else:
-                    status += "  |  Reg: OFF"
-            dpg.set_value("status_text", status)
 
         dpg.render_dearpygui_frame()
 
