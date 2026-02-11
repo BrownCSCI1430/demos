@@ -1,9 +1,6 @@
 """
-Live FFT Demo with Dear PyGui controls
+Interactive Fourier transform demo with webcam
 CSCI 1430 - Brown University
-
-Original: liveFFT.py (keyboard controls)
-This version: Dear PyGui controls for interactive Fourier transform visualization
 """
 
 import cv2
