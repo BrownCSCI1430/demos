@@ -22,8 +22,9 @@ DEFAULTS = {
     "image_translate_x": 0.0,
     "image_translate_y": 0.0,
     "image_scale": 1.0,
-    "brightness_scale": 1.0,
-    "brightness_shift": 0.0,
+    "intensity_scale": 1.0,
+    "intensity_shift": 0.0,
+    "dc_shift": 0.0,
     "dc_zero": False,
     "pause": False,
     "animate_magnitude": True,
@@ -52,8 +53,9 @@ class State:
     image_translate_x = DEFAULTS["image_translate_x"]
     image_translate_y = DEFAULTS["image_translate_y"]
     image_scale = DEFAULTS["image_scale"]
-    brightness_scale = DEFAULTS["brightness_scale"]
-    brightness_shift = DEFAULTS["brightness_shift"]
+    intensity_scale = DEFAULTS["intensity_scale"]
+    intensity_shift = DEFAULTS["intensity_shift"]
+    dc_shift = DEFAULTS["dc_shift"]
     dc_zero = DEFAULTS["dc_zero"]
     pause = DEFAULTS["pause"]
     show_text = True
@@ -186,7 +188,12 @@ def process_fft(im):
     if state.dc_zero:
         amplitude[0, 0] = 0
 
+    amplitude[0, 0] += state.dc_shift * height * width
+    amplitude[0, 0] = max(amplitude[0, 0], 0)
+
+    dc_value = amplitude[0, 0]
     amplitude = amplitude * state.amplitude_scalar
+    amplitude[0, 0] = dc_value
     dc_phase = phase[0, 0]
     phase = phase + state.phase_offset
     phase[0, 0] = dc_phase
@@ -277,9 +284,9 @@ def main():
 
         # Parameters using child_window containers
         with dpg.group(horizontal=True):
-            # Column 1: Input Brightness
+            # Column 1: Input Intensity
             with dpg.child_window(width=300, height=130, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Input Brightness", default_open=True):
+                with dpg.collapsing_header(label="Input Intensity [0,1]", default_open=True):
                     with dpg.table(header_row=False,
                                    borders_innerV=False, borders_outerV=False,
                                    borders_innerH=False, borders_outerH=False,
@@ -289,30 +296,30 @@ def main():
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 
                         with dpg.table_row():
-                            dpg.add_text("Scale")
-                            dpg.add_slider_float(tag="brightness_scale_slider", default_value=state.brightness_scale,
-                                                 min_value=0.0, max_value=3.0,
-                                                 callback=make_state_updater(state, "brightness_scale"),
+                            dpg.add_text("Shift I")
+                            dpg.add_slider_float(tag="intensity_shift_slider", default_value=state.intensity_shift,
+                                                 min_value=-1.0, max_value=1.0,
+                                                 callback=make_state_updater(state, "intensity_shift"),
                                                  width=60, format="%.2f")
                             dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "brightness_scale", "brightness_scale_slider", DEFAULTS["brightness_scale"]),
+                                           callback=make_reset_callback(state, "intensity_shift", "intensity_shift_slider", DEFAULTS["intensity_shift"]),
                                            width=25)
 
                         with dpg.table_row():
-                            dpg.add_text("Shift")
-                            dpg.add_slider_float(tag="brightness_shift_slider", default_value=state.brightness_shift,
-                                                 min_value=-1.0, max_value=1.0,
-                                                 callback=make_state_updater(state, "brightness_shift"),
+                            dpg.add_text("Scale I")
+                            dpg.add_slider_float(tag="intensity_scale_slider", default_value=state.intensity_scale,
+                                                 min_value=0.0, max_value=3.0,
+                                                 callback=make_state_updater(state, "intensity_scale"),
                                                  width=60, format="%.2f")
                             dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "brightness_shift", "brightness_shift_slider", DEFAULTS["brightness_shift"]),
+                                           callback=make_reset_callback(state, "intensity_scale", "intensity_scale_slider", DEFAULTS["intensity_scale"]),
                                            width=25)
 
             dpg.add_spacer(width=10)
 
             # Column 2: Input Transforms
             with dpg.child_window(width=320, height=160, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Input Transforms", default_open=True):
+                with dpg.collapsing_header(label="Input 2D Transforms", default_open=True):
                     with dpg.table(header_row=False,
                                    borders_innerV=False, borders_outerV=False,
                                    borders_innerH=False, borders_outerH=False,
@@ -322,7 +329,7 @@ def main():
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 
                         with dpg.table_row():
-                            dpg.add_text("Rotate")
+                            dpg.add_text("Rotate x,y")
                             dpg.add_slider_float(tag="rotation_slider", default_value=state.image_rotation,
                                                  min_value=-180.0, max_value=180.0,
                                                  callback=make_state_updater(state, "image_rotation"),
@@ -332,7 +339,7 @@ def main():
                                            width=25)
 
                         with dpg.table_row():
-                            dpg.add_text("Scale")
+                            dpg.add_text("Scale x,y")
                             dpg.add_slider_float(tag="scale_slider", default_value=state.image_scale,
                                                  min_value=0.25, max_value=4.0,
                                                  callback=make_state_updater(state, "image_scale"),
@@ -342,7 +349,7 @@ def main():
                                            width=25)
 
                         with dpg.table_row():
-                            dpg.add_text("Translate X")
+                            dpg.add_text("Translate x")
                             dpg.add_slider_float(tag="translate_x_slider", default_value=state.image_translate_x,
                                                  min_value=-100.0, max_value=100.0,
                                                  callback=make_state_updater(state, "image_translate_x"),
@@ -352,7 +359,7 @@ def main():
                                            width=25)
 
                         with dpg.table_row():
-                            dpg.add_text("Translate Y")
+                            dpg.add_text("Translate y")
                             dpg.add_slider_float(tag="translate_y_slider", default_value=state.image_translate_y,
                                                  min_value=-100.0, max_value=100.0,
                                                  callback=make_state_updater(state, "image_translate_y"),
@@ -364,18 +371,28 @@ def main():
             dpg.add_spacer(width=10)
 
             # Column 3: Fourier Parameters
-            with dpg.child_window(width=380, height=130, border=False, no_scrollbar=True):
+            with dpg.child_window(width=460, height=160, border=False, no_scrollbar=True):
                 with dpg.collapsing_header(label="Fourier Parameters", default_open=True):
                     with dpg.table(header_row=False,
                                    borders_innerV=False, borders_outerV=False,
                                    borders_innerH=False, borders_outerH=False,
                                    policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=160)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=240)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 
                         with dpg.table_row():
-                            dpg.add_text("Amplitude Scale")
+                            dpg.add_text("DC Shift")
+                            dpg.add_slider_float(tag="dc_shift_slider", default_value=state.dc_shift,
+                                                 min_value=-1.0, max_value=1.0,
+                                                 callback=make_state_updater(state, "dc_shift"),
+                                                 width=60, format="%.2f")
+                            dpg.add_button(label="R",
+                                           callback=make_reset_callback(state, "dc_shift", "dc_shift_slider", DEFAULTS["dc_shift"]),
+                                           width=25)
+
+                        with dpg.table_row():
+                            dpg.add_text("Amplitude Scale (no DC)")
                             dpg.add_slider_float(tag="amplitude_slider", default_value=state.amplitude_scalar,
                                                  min_value=0.1, max_value=5.0,
                                                  callback=make_state_updater(state, "amplitude_scalar"),
@@ -453,8 +470,8 @@ def main():
                                     state.image_translate_x, state.image_translate_y,
                                     state.image_scale)
 
-            if state.brightness_scale != 1.0 or state.brightness_shift != 0.0:
-                im = np.clip(im * state.brightness_scale + state.brightness_shift, 0, 1)
+            if state.intensity_scale != 1.0 or state.intensity_shift != 0.0:
+                im = np.clip(im * state.intensity_scale + state.intensity_shift, 0, 1)
 
             inverse, amplitude, phase = process_fft(im)
 

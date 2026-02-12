@@ -35,16 +35,18 @@ DEFAULTS = {
     "trans_x": 0.0,
     "trans_y": 0.0,
     "trans_z": 5.0,
-    "fov_x": 60.0,
-    "fov_y": 60.0,
+    "focal_length": 35.0,
+    "sensor_w": 36.0,
+    "sensor_h": 36.0,
     "skew": 0.0,
+    "img_w": 400,
+    "img_h": 400,
     "cx_offset": 0.0,
     "cy_offset": 0.0,
     "ui_scale": 1.5,
 }
 
-RENDER_W = 400
-RENDER_H = 400
+OVERVIEW_SIZE = 400
 
 
 # =============================================================================
@@ -61,11 +63,20 @@ class State:
     trans_z = DEFAULTS["trans_z"]
 
     # Intrinsic
-    fov_x = DEFAULTS["fov_x"]
-    fov_y = DEFAULTS["fov_y"]
+    focal_length = DEFAULTS["focal_length"]
+    sensor_w = DEFAULTS["sensor_w"]
+    sensor_h = DEFAULTS["sensor_h"]
+    img_w = DEFAULTS["img_w"]
+    img_h = DEFAULTS["img_h"]
     skew = DEFAULTS["skew"]
     cx_offset = DEFAULTS["cx_offset"]
     cy_offset = DEFAULTS["cy_offset"]
+
+    # Resolution tracking (for texture recreation)
+    _prev_img_w = DEFAULTS["img_w"]
+    _prev_img_h = DEFAULTS["img_h"]
+    _texture_counter = 0
+    _cam_texture_tag = "camera_texture_0"
 
     # Mode
     camera_frame = False  # False = world frame, True = camera frame
@@ -141,8 +152,11 @@ def _sync_sliders_to_state():
         "trans_x_slider": state.trans_x,
         "trans_y_slider": state.trans_y,
         "trans_z_slider": state.trans_z,
-        "fov_x_slider": state.fov_x,
-        "fov_y_slider": state.fov_y,
+        "focal_slider": state.focal_length,
+        "sensor_w_slider": state.sensor_w,
+        "sensor_h_slider": state.sensor_h,
+        "img_w_slider": state.img_w,
+        "img_h_slider": state.img_h,
         "skew_slider": state.skew,
         "cx_offset_slider": state.cx_offset,
         "cy_offset_slider": state.cy_offset,
@@ -161,6 +175,22 @@ def reset_all():
     if dpg.does_item_exist("ref_frame_combo"):
         dpg.set_value("ref_frame_combo", "World")
     _sync_sliders_to_state()
+
+
+def _recreate_camera_texture(w, h):
+    """Recreate the camera texture at a new resolution using a unique tag."""
+    old_tag = state._cam_texture_tag
+    state._texture_counter += 1
+    new_tag = f"camera_texture_{state._texture_counter}"
+    blank = [0.0] * (w * h * 4)
+    dpg.add_raw_texture(w, h, blank,
+                        format=dpg.mvFormat_Float_rgba, tag=new_tag,
+                        parent="texture_registry")
+    if dpg.does_item_exist("camera_image"):
+        dpg.configure_item("camera_image", texture_tag=new_tag)
+    state._cam_texture_tag = new_tag
+    if dpg.does_item_exist(old_tag):
+        dpg.delete_item(old_tag)
 
 
 def update_image_sizes():
@@ -197,18 +227,20 @@ def main():
         target=np.array([0.0, 0.5, 0.0]),
     )
     overview_K = build_intrinsic(
-        fov_to_focal(50, RENDER_W), fov_to_focal(50, RENDER_H),
-        0, RENDER_W / 2, RENDER_H / 2,
+        fov_to_focal(50, OVERVIEW_SIZE), fov_to_focal(50, OVERVIEW_SIZE),
+        0, OVERVIEW_SIZE / 2, OVERVIEW_SIZE / 2,
     )
 
     # Dear PyGui setup
     dpg.create_context()
 
-    with dpg.texture_registry():
-        blank = [0.0] * (RENDER_W * RENDER_H * 4)
-        dpg.add_raw_texture(RENDER_W, RENDER_H, blank,
-                            format=dpg.mvFormat_Float_rgba, tag="camera_texture")
-        dpg.add_raw_texture(RENDER_W, RENDER_H, blank,
+    with dpg.texture_registry(tag="texture_registry"):
+        cam_w, cam_h = DEFAULTS["img_w"], DEFAULTS["img_h"]
+        blank_cam = [0.0] * (cam_w * cam_h * 4)
+        dpg.add_raw_texture(cam_w, cam_h, blank_cam,
+                            format=dpg.mvFormat_Float_rgba, tag=state._cam_texture_tag)
+        blank_ov = [0.0] * (OVERVIEW_SIZE * OVERVIEW_SIZE * 4)
+        dpg.add_raw_texture(OVERVIEW_SIZE, OVERVIEW_SIZE, blank_ov,
                             format=dpg.mvFormat_Float_rgba, tag="overview_texture")
 
     with dpg.window(label="3D Camera Demo", tag="main_window"):
@@ -235,78 +267,108 @@ def main():
 
         dpg.add_separator()
 
-        # --- Parameter controls in 2 columns ---
+        # --- Parameter controls in 3 columns ---
         with dpg.group(horizontal=True):
-            # Column 1: Intrinsic
-            with dpg.child_window(width=280, height=230, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Intrinsic K", default_open=True):
+            # Column 1: Pixel-space projection
+            with dpg.child_window(width=360, height=380, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Projection to Pixels", default_open=True):
                     with create_parameter_table():
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=60)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=130)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=150)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
 
-                        add_parameter_row("FOV X", "fov_x_slider", DEFAULTS["fov_x"],
-                                          5.0, 170.0,
-                                          make_state_updater(state, "fov_x"),
-                                          make_reset_callback(state, "fov_x", "fov_x_slider", DEFAULTS["fov_x"]),
-                                          format_str="%.1f")
-                        add_parameter_row("FOV Y", "fov_y_slider", DEFAULTS["fov_y"],
-                                          5.0, 170.0,
-                                          make_state_updater(state, "fov_y"),
-                                          make_reset_callback(state, "fov_y", "fov_y_slider", DEFAULTS["fov_y"]),
-                                          format_str="%.1f")
-                        add_parameter_row("Skew", "skew_slider", DEFAULTS["skew"],
+                        add_parameter_row("img_w (px)", "img_w_slider", DEFAULTS["img_w"],
+                                          100, 800,
+                                          make_state_updater(state, "img_w"),
+                                          make_reset_callback(state, "img_w", "img_w_slider", DEFAULTS["img_w"]),
+                                          slider_type="int")
+                        add_parameter_row("img_h (px)", "img_h_slider", DEFAULTS["img_h"],
+                                          100, 800,
+                                          make_state_updater(state, "img_h"),
+                                          make_reset_callback(state, "img_h", "img_h_slider", DEFAULTS["img_h"]),
+                                          slider_type="int")
+                        add_parameter_row("Skew (px)", "skew_slider", DEFAULTS["skew"],
                                           -500.0, 500.0,
                                           make_state_updater(state, "skew"),
                                           make_reset_callback(state, "skew", "skew_slider", DEFAULTS["skew"]),
                                           format_str="%.1f")
-                        add_parameter_row("CX off", "cx_offset_slider", DEFAULTS["cx_offset"],
+                        add_parameter_row("CX off (px)", "cx_offset_slider", DEFAULTS["cx_offset"],
                                           -200.0, 200.0,
                                           make_state_updater(state, "cx_offset"),
                                           make_reset_callback(state, "cx_offset", "cx_offset_slider", DEFAULTS["cx_offset"]),
                                           format_str="%.1f")
-                        add_parameter_row("CY off", "cy_offset_slider", DEFAULTS["cy_offset"],
+                        add_parameter_row("CY off (px)", "cy_offset_slider", DEFAULTS["cy_offset"],
                                           -200.0, 200.0,
                                           make_state_updater(state, "cy_offset"),
                                           make_reset_callback(state, "cy_offset", "cy_offset_slider", DEFAULTS["cy_offset"]),
                                           format_str="%.1f")
 
+                dpg.add_spacer(height=5)
+                dpg.add_text("Physical \u2192 Pixel:", color=(200, 200, 150))
+                dpg.add_text("", tag="conversion_text")
+
             dpg.add_spacer(width=10)
 
-            # Column 2: Extrinsic
-            with dpg.child_window(width=280, height=230, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Extrinsic [R|t]", default_open=True):
+            # Column 2: Physical camera
+            with dpg.child_window(width=360, height=380, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Physical Camera", default_open=True):
                     with create_parameter_table():
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=60)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=130)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=150)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
 
-                        add_parameter_row("Rot X", "rot_x_slider", DEFAULTS["rot_x"],
+                        add_parameter_row("f (mm)", "focal_slider", DEFAULTS["focal_length"],
+                                          5.0, 200.0,
+                                          make_state_updater(state, "focal_length"),
+                                          make_reset_callback(state, "focal_length", "focal_slider", DEFAULTS["focal_length"]),
+                                          format_str="%.1f")
+                        add_parameter_row("Sensor W (mm)", "sensor_w_slider", DEFAULTS["sensor_w"],
+                                          5.0, 100.0,
+                                          make_state_updater(state, "sensor_w"),
+                                          make_reset_callback(state, "sensor_w", "sensor_w_slider", DEFAULTS["sensor_w"]),
+                                          format_str="%.1f")
+                        add_parameter_row("Sensor H (mm)", "sensor_h_slider", DEFAULTS["sensor_h"],
+                                          5.0, 100.0,
+                                          make_state_updater(state, "sensor_h"),
+                                          make_reset_callback(state, "sensor_h", "sensor_h_slider", DEFAULTS["sensor_h"]),
+                                          format_str="%.1f")
+
+            dpg.add_spacer(width=10)
+
+            # Column 3: Extrinsic
+            with dpg.child_window(width=360, height=380, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Extrinsic [R|t]", default_open=True):
+                    with create_parameter_table():
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=150)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+
+                        add_parameter_row("Rot X (rad)", "rot_x_slider", DEFAULTS["rot_x"],
                                           -np.pi, np.pi,
                                           make_state_updater(state, "rot_x"),
                                           make_reset_callback(state, "rot_x", "rot_x_slider", DEFAULTS["rot_x"]),
                                           format_str="%.2f")
-                        add_parameter_row("Rot Y", "rot_y_slider", DEFAULTS["rot_y"],
+                        add_parameter_row("Rot Y (rad)", "rot_y_slider", DEFAULTS["rot_y"],
                                           -np.pi, np.pi,
                                           make_state_updater(state, "rot_y"),
                                           make_reset_callback(state, "rot_y", "rot_y_slider", DEFAULTS["rot_y"]),
                                           format_str="%.2f")
-                        add_parameter_row("Rot Z", "rot_z_slider", DEFAULTS["rot_z"],
+                        add_parameter_row("Rot Z (rad)", "rot_z_slider", DEFAULTS["rot_z"],
                                           -np.pi, np.pi,
                                           make_state_updater(state, "rot_z"),
                                           make_reset_callback(state, "rot_z", "rot_z_slider", DEFAULTS["rot_z"]),
                                           format_str="%.2f")
-                        add_parameter_row("Trans X", "trans_x_slider", DEFAULTS["trans_x"],
+                        add_parameter_row("Tx (m)", "trans_x_slider", DEFAULTS["trans_x"],
                                           -10.0, 10.0,
                                           make_state_updater(state, "trans_x"),
                                           make_reset_callback(state, "trans_x", "trans_x_slider", DEFAULTS["trans_x"]),
                                           format_str="%.2f")
-                        add_parameter_row("Trans Y", "trans_y_slider", DEFAULTS["trans_y"],
+                        add_parameter_row("Ty (m)", "trans_y_slider", DEFAULTS["trans_y"],
                                           -10.0, 10.0,
                                           make_state_updater(state, "trans_y"),
                                           make_reset_callback(state, "trans_y", "trans_y_slider", DEFAULTS["trans_y"]),
                                           format_str="%.2f")
-                        add_parameter_row("Trans Z", "trans_z_slider", DEFAULTS["trans_z"],
+                        add_parameter_row("Tz (m)", "trans_z_slider", DEFAULTS["trans_z"],
                                           -10.0, 10.0,
                                           make_state_updater(state, "trans_z"),
                                           make_reset_callback(state, "trans_z", "trans_z_slider", DEFAULTS["trans_z"]),
@@ -333,25 +395,33 @@ def main():
         # --- Image panels ---
         with dpg.group(horizontal=True):
             with dpg.group():
-                dpg.add_text(f"Camera View ({RENDER_W}x{RENDER_H})", color=(150, 200, 255))
-                dpg.add_image("camera_texture", tag="camera_image")
+                dpg.add_text("", tag="camera_view_label", color=(150, 200, 255))
+                dpg.add_image(state._cam_texture_tag, tag="camera_image")
             dpg.add_spacer(width=10)
             with dpg.group():
                 dpg.add_text("Overview (with frustum)", color=(150, 255, 150))
                 dpg.add_image("overview_texture", tag="overview_image")
 
     # Viewport setup
-    setup_viewport("3D Camera Demo", 1100, 850,
+    setup_viewport("3D Camera Demo", 1400, 850,
                     "main_window", on_viewport_resize, DEFAULTS["ui_scale"])
     update_image_sizes()
 
     # === Main loop ===
     while dpg.is_dearpygui_running():
-        # Build intrinsic K
-        fx = fov_to_focal(state.fov_x, RENDER_W)
-        fy = fov_to_focal(state.fov_y, RENDER_H)
-        cx = RENDER_W / 2.0 + state.cx_offset
-        cy = RENDER_H / 2.0 + state.cy_offset
+        # Dynamic image resolution
+        iw, ih = int(state.img_w), int(state.img_h)
+
+        # Recreate camera texture if resolution changed
+        if iw != state._prev_img_w or ih != state._prev_img_h:
+            _recreate_camera_texture(iw, ih)
+            state._prev_img_w, state._prev_img_h = iw, ih
+
+        # Build intrinsic K  (physical mm → pixel focal lengths)
+        fx = state.focal_length * iw / state.sensor_w
+        fy = state.focal_length * ih / state.sensor_h
+        cx = iw / 2.0 + state.cx_offset
+        cy = ih / 2.0 + state.cy_offset
         K = build_intrinsic(fx, fy, state.skew, cx, cy)
 
         # Build extrinsic [R|t]
@@ -366,19 +436,34 @@ def main():
         state.K, state.Rt, state.M = K, Rt, M
 
         # Render camera view
-        camera_img = render_scene(scene_meshes, K, Rt, RENDER_W, RENDER_H)
+        camera_img = render_scene(scene_meshes, K, Rt, iw, ih)
 
         # Render overview (scene + frustum + axes)
-        frustum_meshes = make_frustum_mesh(K, Rt, RENDER_W, RENDER_H, near=0.3, far=5.0)
+        frustum_meshes = make_frustum_mesh(K, Rt, iw, ih, near=0.3, far=5.0)
         world_axes = make_axis_mesh(origin=(0, 0, 0), length=1.5)
         cam_axes = make_camera_axes_mesh(Rt, length=0.8)
         overview_meshes = scene_meshes + frustum_meshes + world_axes + cam_axes
         overview_img = render_scene(overview_meshes, overview_K, overview_Rt,
-                                     RENDER_W, RENDER_H)
+                                     OVERVIEW_SIZE, OVERVIEW_SIZE)
 
         # Update textures
-        dpg.set_value("camera_texture", convert_cv_to_dpg(camera_img))
+        dpg.set_value(state._cam_texture_tag, convert_cv_to_dpg(camera_img))
         dpg.set_value("overview_texture", convert_cv_to_dpg(overview_img))
+
+        # Update camera view label
+        dpg.set_value("camera_view_label", f"Camera View ({iw}x{ih})")
+
+        # Update conversion display
+        conv = (
+            f"f_x = f \u00b7 img_w / sensor_w\n"
+            f"   = {state.focal_length:.1f} \u00b7 {iw} / {state.sensor_w:.1f}\n"
+            f"   = {fx:.2f} px\n"
+            f"\n"
+            f"f_y = f \u00b7 img_h / sensor_h\n"
+            f"   = {state.focal_length:.1f} \u00b7 {ih} / {state.sensor_h:.1f}\n"
+            f"   = {fy:.2f} px"
+        )
+        dpg.set_value("conversion_text", conv)
 
         # Update matrix display
         dpg.set_value("k_text", _fmt_mat(K))
