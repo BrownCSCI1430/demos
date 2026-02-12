@@ -80,6 +80,7 @@ class State:
 
     # Mode
     camera_frame = False  # False = world frame, True = camera frame
+    show_symbolic = False  # False = numeric values, True = algebraic symbols
 
     # Cached matrices
     K = None
@@ -264,13 +265,20 @@ def main():
             )
             dpg.add_spacer(width=20)
             dpg.add_button(label="Reset All", callback=lambda: reset_all())
+            dpg.add_spacer(width=20)
+            dpg.add_checkbox(
+                label="Show matrices algebraically",
+                default_value=False,
+                callback=_on_symbolic_toggle,
+                tag="symbolic_toggle",
+            )
 
         dpg.add_separator()
 
         # --- Parameter controls in 3 columns ---
         with dpg.group(horizontal=True):
             # Column 1: Pixel-space projection
-            with dpg.child_window(width=360, height=380, border=False, no_scrollbar=True):
+            with dpg.child_window(width=360, height=280, border=False, no_scrollbar=True):
                 with dpg.collapsing_header(label="Projection to Pixels", default_open=True):
                     with create_parameter_table():
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=150)
@@ -287,30 +295,26 @@ def main():
                                           make_state_updater(state, "img_h"),
                                           make_reset_callback(state, "img_h", "img_h_slider", DEFAULTS["img_h"]),
                                           slider_type="int")
-                        add_parameter_row("Skew (px)", "skew_slider", DEFAULTS["skew"],
+                        add_parameter_row("Skew s (px)", "skew_slider", DEFAULTS["skew"],
                                           -500.0, 500.0,
                                           make_state_updater(state, "skew"),
                                           make_reset_callback(state, "skew", "skew_slider", DEFAULTS["skew"]),
                                           format_str="%.1f")
-                        add_parameter_row("CX off (px)", "cx_offset_slider", DEFAULTS["cx_offset"],
+                        add_parameter_row("Center_x offset (px)", "cx_offset_slider", DEFAULTS["cx_offset"],
                                           -200.0, 200.0,
                                           make_state_updater(state, "cx_offset"),
                                           make_reset_callback(state, "cx_offset", "cx_offset_slider", DEFAULTS["cx_offset"]),
                                           format_str="%.1f")
-                        add_parameter_row("CY off (px)", "cy_offset_slider", DEFAULTS["cy_offset"],
+                        add_parameter_row("Center_y offset (px)", "cy_offset_slider", DEFAULTS["cy_offset"],
                                           -200.0, 200.0,
                                           make_state_updater(state, "cy_offset"),
                                           make_reset_callback(state, "cy_offset", "cy_offset_slider", DEFAULTS["cy_offset"]),
                                           format_str="%.1f")
 
-                dpg.add_spacer(height=5)
-                dpg.add_text("Physical \u2192 Pixel:", color=(200, 200, 150))
-                dpg.add_text("", tag="conversion_text")
-
             dpg.add_spacer(width=10)
 
             # Column 2: Physical camera
-            with dpg.child_window(width=360, height=380, border=False, no_scrollbar=True):
+            with dpg.child_window(width=360, height=310, border=False, no_scrollbar=True):
                 with dpg.collapsing_header(label="Physical Camera", default_open=True):
                     with create_parameter_table():
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=150)
@@ -333,10 +337,14 @@ def main():
                                           make_reset_callback(state, "sensor_h", "sensor_h_slider", DEFAULTS["sensor_h"]),
                                           format_str="%.1f")
 
+                dpg.add_spacer(height=5)
+                dpg.add_text("Physical to Pixel:", color=(200, 200, 150))
+                dpg.add_text("", tag="conversion_text")
+
             dpg.add_spacer(width=10)
 
             # Column 3: Extrinsic
-            with dpg.child_window(width=360, height=380, border=False, no_scrollbar=True):
+            with dpg.child_window(width=360, height=280, border=False, no_scrollbar=True):
                 with dpg.collapsing_header(label="Extrinsic [R|t]", default_open=True):
                     with create_parameter_table():
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=150)
@@ -466,9 +474,14 @@ def main():
         dpg.set_value("conversion_text", conv)
 
         # Update matrix display
-        dpg.set_value("k_text", _fmt_mat(K))
-        dpg.set_value("rt_text", _fmt_mat(Rt))
-        dpg.set_value("m_text", _fmt_mat(M))
+        if state.show_symbolic:
+            dpg.set_value("k_text", _K_SYMBOLIC)
+            dpg.set_value("rt_text", _RT_SYMBOLIC)
+            dpg.set_value("m_text", _M_SYMBOLIC)
+        else:
+            dpg.set_value("k_text", _fmt_mat(K))
+            dpg.set_value("rt_text", _fmt_mat(Rt))
+            dpg.set_value("m_text", _fmt_mat(M))
 
         dpg.render_dearpygui_frame()
 
@@ -483,6 +496,30 @@ def _fmt_mat(mat):
         cells = " ".join(f"{mat[r, c]:8.2f}" for c in range(cols))
         lines.append(f"[ {cells} ]")
     return "\n".join(lines)
+
+
+# Symbolic (algebraic) matrix templates
+_K_SYMBOLIC = (
+    "[  f_x    s    c_x ]\n"
+    "[   0    f_y   c_y ]\n"
+    "[   0     0     1  ]"
+)
+
+_RT_SYMBOLIC = (
+    "[ r11  r12  r13 | t_x ]\n"
+    "[ r21  r22  r23 | t_y ]\n"
+    "[ r31  r32  r33 | t_z ]"
+)
+
+_M_SYMBOLIC = (
+    "[ m11  m12  m13  m14 ]\n"
+    "[ m21  m22  m23  m24 ]\n"
+    "[ m31  m32  m33  m34 ]"
+)
+
+
+def _on_symbolic_toggle(sender, value):
+    state.show_symbolic = value
 
 
 if __name__ == "__main__":
