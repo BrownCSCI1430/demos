@@ -37,3 +37,22 @@ from .demo_fft import (
     process_convolution,
     process_deconvolution,
 )
+
+from .demo_3d import (
+    build_intrinsic,
+    build_rotation,
+    build_extrinsic,
+    euler_from_rotation,
+    fov_to_focal,
+    make_lookat_Rt,
+    render_scene,
+    create_default_scene,
+    make_cube,
+    make_sphere,
+    make_cylinder,
+    make_ground_grid,
+    make_frustum_mesh,
+    make_axis_mesh,
+    make_camera_axes_mesh,
+    format_matrix,
+)

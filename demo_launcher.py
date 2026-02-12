@@ -58,6 +58,11 @@ DEMOS = {
         "description": "Detect faces using Haar cascade classifiers with multiple cascade options.",
         "default_resolution": "640x480"
     },
+    "3D Camera": {
+        "file": "liveCamera.py",
+        "description": "Interactive 3D camera demo. Explore intrinsic (K) and extrinsic [R|t] matrices with real-time software rendering. Toggle between world and camera reference frames.",
+        "default_resolution": "400x400"
+    },
 }
 
 DEFAULT_UI_SCALE = 1.5
@@ -205,7 +210,7 @@ def main():
         dpg.add_spacer(height=20)
         dpg.add_separator()
         dpg.add_spacer(height=5)
-        dpg.add_text("Note: Each demo requires a webcam.", color=(150, 150, 150))
+        dpg.add_text("Note: Most demos require a webcam.", color=(150, 150, 150))
         dpg.add_text("Close the demo window to return here.", color=(150, 150, 150))
 
     dpg.create_viewport(title="CSCI 1430 - Demo Launcher", width=500, height=900)
