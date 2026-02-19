@@ -108,6 +108,41 @@ def make_sphere(center, radius, color, n_lat=10, n_lon=16):
     return {"vertices": vertices, "faces": faces, "color": color}
 
 
+def make_octahedron(center, radius, color):
+    """Create a regular octahedron mesh — looks like a 3D diamond.
+
+    Args:
+        center: (x, y, z) center position
+        radius: distance from center to each vertex
+        color: (B, G, R) base color
+
+    Returns:
+        Mesh dict with 6 vertices and 8 triangular faces
+    """
+    cx, cy, cz = center
+    r = radius
+    vertices = np.array([
+        [cx,   cy+r, cz  ],  # 0: top
+        [cx+r, cy,   cz  ],  # 1: right
+        [cx,   cy,   cz+r],  # 2: front
+        [cx-r, cy,   cz  ],  # 3: left
+        [cx,   cy,   cz-r],  # 4: back
+        [cx,   cy-r, cz  ],  # 5: bottom
+    ], dtype=np.float64)
+    # CCW winding for outward normals (verified via cross-product)
+    faces = [
+        [0, 2, 1],  # top-front-right
+        [0, 3, 2],  # top-left-front
+        [0, 4, 3],  # top-back-left
+        [0, 1, 4],  # top-right-back
+        [5, 1, 2],  # bottom-right-front
+        [5, 2, 3],  # bottom-front-left
+        [5, 3, 4],  # bottom-left-back
+        [5, 4, 1],  # bottom-back-right
+    ]
+    return {"vertices": vertices, "faces": faces, "color": color}
+
+
 def make_cylinder(base_center, radius, height, color, n_seg=16):
     """Create a cylinder mesh (Y-axis aligned).
 

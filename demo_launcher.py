@@ -63,6 +63,21 @@ DEMOS = {
         "description": "Interactive 3D camera demo. Explore intrinsic (K) and extrinsic [R|t] matrices with real-time software rendering. Toggle between world and camera reference frames.",
         "default_resolution": "400x400"
     },
+    "Camera Calibration (DLT)": {
+        "file": "liveCalibration.py",
+        "description": "Synthetic DLT calibration demo. Drag the noise slider to add pixel noise to 2D-3D correspondences and watch the reprojection error and condition number change. Toggle Hartley normalization to see its effect on numerical stability.",
+        "default_resolution": "480x480"
+    },
+    "Plane Sweep Stereo": {
+        "file": "livePlaneSweep.py",
+        "description": "Depth-dependent homography H(λ) demo. Sweep the depth slider to warp one camera view into the other. NCC peaks when λ matches the true scene depth, showing the plane sweep stereo principle (HW3 Task 2).",
+        "default_resolution": "400x400"
+    },
+    "Sparse Triangulation": {
+        "file": "liveTriangulation.py",
+        "description": "Click correspondences in two camera views to triangulate 3D points. The epipolar line guides you to the correct match. Cheirality check shown in green (valid) or red (behind camera). Uses the 4x4 DLT system (HW3 Task 5).",
+        "default_resolution": "420x380"
+    },
 }
 
 DEFAULT_UI_SCALE = 1.5
