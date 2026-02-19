@@ -56,6 +56,8 @@ DEFAULTS = {
     "n_points": 12,
     "ui_scale": 1.5,
     "use_normal_eqs": False,
+    "offset_exp": 0,
+    "scale_exp": 0,
 }
 
 IMG_W, IMG_H   = 480, 480
@@ -177,6 +179,8 @@ def _depth_color(z):
 class State:
     noise_px    = DEFAULTS["noise_px"]
     n_points    = DEFAULTS["n_points"]
+    offset_exp  = DEFAULTS["offset_exp"]
+    scale_exp   = DEFAULTS["scale_exp"]
     show_A_matrix  = False
     use_hartley    = False
     use_coplanar   = False
@@ -268,7 +272,8 @@ def build_A_matrix(pts2d, pts3d):
     return A
 
 
-def estimate_M_dlt(pts2d, pts3d, use_hartley=False, use_normal_eqs=False):
+def estimate_M_dlt(pts2d, pts3d, use_hartley=False, use_normal_eqs=False,
+                   origin_offset=0.0, world_scale=1.0):
     """Estimate 3x4 M via DLT.
 
     Parameters:
@@ -276,14 +281,36 @@ def estimate_M_dlt(pts2d, pts3d, use_hartley=False, use_normal_eqs=False):
         use_normal_eqs -- solve via eigenvalue of A^T A instead of SVD.
                           This SQUARES the condition number, making normalization
                           visibly critical for accuracy.
+        origin_offset  -- add this constant to all 2D and 3D coordinates before
+                          solving, then undo the transform on the result.
+                          Simulates coordinates far from the origin, which
+                          worsens conditioning.  Normalization centres it away.
+        world_scale    -- multiply 3D coordinates by this factor (2D stays in
+                          pixels).  Simulates a unit mismatch (e.g. mm vs m).
+                          Normalization rescales it away.
 
     Returns:
-        M_est     -- 3x4 camera matrix (scaled so M[2,3]=1)
-        A         -- 2Nx12 DLT matrix (unnormalised, for display)
+        M_est     -- 3x4 camera matrix (scaled so M[2,3]=1), in original coords
+        A         -- 2Nx12 DLT matrix (as seen by the solver, for display)
         cond_A    -- conditioning metric (large = poorly conditioned)
         fit_resid -- fit quality (~0 for a perfect fit; grows with noise)
     """
     assert len(pts2d) >= 6, "DLT needs at least 6 correspondences."
+
+    # Scale 3D coordinates to simulate a unit mismatch.
+    # Hartley normalization rescales both 2D and 3D to unit std; without it
+    # the A matrix columns for 3D vs 2D span different magnitudes.
+    S = float(world_scale)
+    if S != 1.0:
+        pts3d = pts3d * S
+
+    # Shift coordinates to simulate a distant origin.
+    # Hartley normalization centres both sets; without it the
+    # A matrix columns span wildly different scales.
+    O = float(origin_offset)
+    if O != 0.0:
+        pts2d = pts2d + O
+        pts3d = pts3d + O
 
     T2, T3 = np.eye(3), np.eye(4)
     if use_hartley:
@@ -314,6 +341,18 @@ def estimate_M_dlt(pts2d, pts3d, use_hartley=False, use_normal_eqs=False):
     M_est = m.reshape(3, 4)
     if use_hartley:
         M_est = np.linalg.inv(T2) @ M_est @ T3
+
+    # Undo the origin offset: M maps shifted coords → shifted coords.
+    # Convert back: M_orig = T2_inv @ M_shifted @ T3_fwd
+    if O != 0.0:
+        T2_inv  = np.array([[1, 0, -O], [0, 1, -O], [0, 0, 1]])
+        T3_fwd  = np.array([[1,0,0,O], [0,1,0,O], [0,0,1,O], [0,0,0,1]])
+        M_est = T2_inv @ M_est @ T3_fwd
+
+    # Undo the world scale: M currently maps (S*X,S*Y,S*Z,1) → (u,v,1).
+    # We want M that maps (X,Y,Z,1) → (u,v,1), so M = M_s @ diag(S,S,S,1).
+    if S != 1.0:
+        M_est = M_est @ np.diag([S, S, S, 1.0])
 
     denom = M_est[2, 3]
     if abs(denom) > 1e-10:
@@ -482,6 +521,8 @@ def on_mouse_wheel(sender, app_data):
 def reset_all():
     state.noise_px = DEFAULTS["noise_px"]
     state.n_points = DEFAULTS["n_points"]
+    state.offset_exp = DEFAULTS["offset_exp"]
+    state.scale_exp  = DEFAULTS["scale_exp"]
     state.show_A_matrix  = False
     state.use_hartley    = False
     state.use_coplanar   = False
@@ -490,6 +531,8 @@ def reset_all():
     for tag, val in [
         ("noise_slider",     DEFAULTS["noise_px"]),
         ("npts_slider",      DEFAULTS["n_points"]),
+        ("offset_slider",    DEFAULTS["offset_exp"]),
+        ("scale_slider",     DEFAULTS["scale_exp"]),
         ("show_A_check",     False),
         ("hartley_check",    False),
         ("normal_eqs_check", DEFAULTS["use_normal_eqs"]),
@@ -528,7 +571,7 @@ def main():
 
     with dpg.window(label="Camera Calibration Demo (DLT)", tag="main_window"):
 
-        # ── Top controls ─────────────────────────────────────────────────────
+        # ── Global controls ──────────────────────────────────────────────────
         with dpg.group(horizontal=True):
             dpg.add_slider_float(
                 label="UI Scale", default_value=DEFAULTS["ui_scale"],
@@ -537,50 +580,89 @@ def main():
             )
             dpg.add_spacer(width=20)
             dpg.add_button(label="Reset All", callback=lambda: reset_all())
-            dpg.add_spacer(width=20)
-            dpg.add_checkbox(
-                label="Hartley Normalize",
-                default_value=False, callback=on_hartley, tag="hartley_check",
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_checkbox(
-                label="Solve via A\u1d40A",
-                default_value=DEFAULTS["use_normal_eqs"],
-                callback=on_normal_eqs, tag="normal_eqs_check",
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_checkbox(
-                label="Coplanar (z=const)",
-                default_value=False, callback=on_coplanar, tag="coplanar_check",
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_checkbox(
-                label="Show A matrix",
-                default_value=False, callback=on_show_A, tag="show_A_check",
-            )
 
-        dpg.add_separator()
+        # ── Control panels ───────────────────────────────────────────────────
+        with dpg.group(horizontal=True):
 
-        # ── Parameter sliders ────────────────────────────────────────────────
-        with create_parameter_table():
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=130)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=240)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
+            # Block 1: Input Data ─────────────────────────────────────────────
+            with dpg.child_window(width=290, height=170, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Input Data", default_open=True):
+                    with create_parameter_table():
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
+                        add_parameter_row(
+                            "Noise (px)", "noise_slider",
+                            DEFAULTS["noise_px"], 0.0, 20.0,
+                            make_state_updater(state, "noise_px"),
+                            make_reset_callback(state, "noise_px", "noise_slider", DEFAULTS["noise_px"]),
+                            format_str="%.1f", width=140,
+                        )
+                        add_parameter_row(
+                            "N points", "npts_slider",
+                            DEFAULTS["n_points"], 6, npts_max,
+                            make_state_updater(state, "n_points"),
+                            make_reset_callback(state, "n_points", "npts_slider", DEFAULTS["n_points"]),
+                            slider_type="int", width=140,
+                        )
+                    dpg.add_checkbox(
+                        label="Coplanar (z=const)",
+                        default_value=False, callback=on_coplanar, tag="coplanar_check",
+                    )
 
-            add_parameter_row(
-                "Noise (px)", "noise_slider",
-                DEFAULTS["noise_px"], 0.0, 20.0,
-                make_state_updater(state, "noise_px"),
-                make_reset_callback(state, "noise_px", "noise_slider", DEFAULTS["noise_px"]),
-                format_str="%.1f", width=240,
-            )
-            add_parameter_row(
-                "N points", "npts_slider",
-                DEFAULTS["n_points"], 6, npts_max,
-                make_state_updater(state, "n_points"),
-                make_reset_callback(state, "n_points", "npts_slider", DEFAULTS["n_points"]),
-                slider_type="int", width=240,
-            )
+            dpg.add_spacer(width=8)
+
+            # Block 2: Solver ─────────────────────────────────────────────────
+            with dpg.child_window(width=220, height=170, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Solver", default_open=True):
+                    dpg.add_checkbox(
+                        label="Hartley Normalize",
+                        default_value=False, callback=on_hartley, tag="hartley_check",
+                    )
+                    dpg.add_spacer(height=4)
+                    dpg.add_checkbox(
+                        label="Solve via A\u1d40A",
+                        default_value=DEFAULTS["use_normal_eqs"],
+                        callback=on_normal_eqs, tag="normal_eqs_check",
+                    )
+
+            dpg.add_spacer(width=8)
+
+            # Block 3: Coordinate Distortion ──────────────────────────────────
+            with dpg.child_window(width=330, height=170, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Coordinate Distortion", default_open=True):
+                    with create_parameter_table():
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
+                        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
+                        add_parameter_row(
+                            "Offset 10^n", "offset_slider",
+                            DEFAULTS["offset_exp"], 0, 8,
+                            make_state_updater(state, "offset_exp"),
+                            make_reset_callback(state, "offset_exp", "offset_slider", DEFAULTS["offset_exp"]),
+                            slider_type="int", width=140,
+                        )
+                        add_parameter_row(
+                            "Scale 10^n", "scale_slider",
+                            DEFAULTS["scale_exp"], 0, 6,
+                            make_state_updater(state, "scale_exp"),
+                            make_reset_callback(state, "scale_exp", "scale_slider", DEFAULTS["scale_exp"]),
+                            slider_type="int", width=140,
+                        )
+                    dpg.add_text(
+                        "\u2191 Increase these, then normalize!",
+                        color=(255, 200, 100),
+                    )
+
+            dpg.add_spacer(width=8)
+
+            # Block 4: Inspect ────────────────────────────────────────────────
+            with dpg.child_window(width=180, height=170, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Inspect", default_open=True):
+                    dpg.add_checkbox(
+                        label="Show A matrix",
+                        default_value=False, callback=on_show_A, tag="show_A_check",
+                    )
 
         dpg.add_separator()
 
@@ -645,9 +727,12 @@ def main():
         pts2d_noisy = pts2d_true + _FIXED_NOISE[sel] * state.noise_px
 
         # ── DLT ─────────────────────────────────────────────────────────────
+        offset = 10.0 ** state.offset_exp if state.offset_exp > 0 else 0.0
+        wscale = 10.0 ** state.scale_exp  if state.scale_exp  > 0 else 1.0
         try:
             M_est, A, cond_A, fit_resid = estimate_M_dlt(
-                pts2d_noisy, pts3d, state.use_hartley, state.use_normal_eqs)
+                pts2d_noisy, pts3d, state.use_hartley, state.use_normal_eqs,
+                origin_offset=offset, world_scale=wscale)
             pts2d_est = _project(M_est, pts3d)
             diff      = pts2d_est - pts2d_true
             residual  = float(np.sqrt((diff**2).sum(axis=1)).mean())
@@ -676,7 +761,8 @@ def main():
             try:
                 M_ref, _, _, _ = estimate_M_dlt(
                     pts2d_ref_noisy, pts3d_ref, state.use_hartley,
-                    state.use_normal_eqs)
+                    state.use_normal_eqs, origin_offset=offset,
+                    world_scale=wscale)
             except Exception:
                 M_ref = TRUE_M.copy()
         else:
@@ -771,15 +857,25 @@ def main():
             f"fit residual = {fit_str}  "
             f"(~0 = perfect fit; grows with noise)",
         )
-        if state.use_normal_eqs:
-            cond_hint = ("Normalization reduces this; "
-                         "A\u1d40A squares it \u2014 try toggling Normalization!")
+        # Build conditioning hint based on current settings
+        has_distortion = state.offset_exp > 0 or state.scale_exp > 0
+        if has_distortion and not state.use_hartley:
+            cond_hint = "Toggle Normalization ON to fix this!"
+        elif has_distortion and state.use_hartley:
+            cond_hint = "Normalization centred + rescaled \u2014 distortion neutralised"
+        elif state.use_normal_eqs:
+            cond_hint = "A\u1d40A squares it \u2014 try Offset/Scale + Normalization"
         else:
-            cond_hint = ("Normalization reduces this; "
-                         "SVD is robust so reproj barely changes")
+            cond_hint = "Try Offset or World Scale, then toggle Normalization"
+        distort_parts = []
+        if state.offset_exp > 0:
+            distort_parts.append(f"Offset=10^{state.offset_exp}")
+        if state.scale_exp > 0:
+            distort_parts.append(f"Scale=10^{state.scale_exp}")
+        distort_str = ("  |  " + ", ".join(distort_parts)) if distort_parts else ""
         dpg.set_value(
             "status_text3",
-            f"cond = {cond_str}  ({cond_hint})",
+            f"cond = {cond_str}{distort_str}  ({cond_hint})",
         )
 
         # ── M matrix display ─────────────────────────────────────────────────

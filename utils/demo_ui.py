@@ -65,6 +65,7 @@ def load_fonts(size=14):
                 dpg.add_font_range(0x1D00, 0x1D7F)   # Phonetic Extensions (ᵀ)
                 dpg.add_font_range(0x2000, 0x206F)   # General Punctuation (—)
                 dpg.add_font_range(0x00D7, 0x00D7)   # × multiplication sign
+                dpg.add_font_range(0x2190, 0x21FF)   # Arrows (↑ ↓ ← →)
             for mfp in _MONO_CANDIDATES:
                 if os.path.exists(mfp):
                     with dpg.font(mfp, size) as _mono_font:
