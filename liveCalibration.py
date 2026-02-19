@@ -281,10 +281,10 @@ def estimate_M_dlt(pts2d, pts3d, use_hartley=False, use_normal_eqs=False,
         use_normal_eqs -- solve via eigenvalue of A^T A instead of SVD.
                           This SQUARES the condition number, making normalization
                           visibly critical for accuracy.
-        origin_offset  -- add this constant to all 2D and 3D coordinates before
-                          solving, then undo the transform on the result.
-                          Simulates coordinates far from the origin, which
-                          worsens conditioning.  Normalization centres it away.
+        origin_offset  -- add this constant to 3D coordinates before solving,
+                          then undo the transform on the result.  Simulates a
+                          world origin far from the scene, which worsens
+                          conditioning.  Normalization centres it away.
         world_scale    -- multiply 3D coordinates by this factor (2D stays in
                           pixels).  Simulates a unit mismatch (e.g. mm vs m).
                           Normalization rescales it away.
@@ -304,12 +304,11 @@ def estimate_M_dlt(pts2d, pts3d, use_hartley=False, use_normal_eqs=False,
     if S != 1.0:
         pts3d = pts3d * S
 
-    # Shift coordinates to simulate a distant origin.
+    # Shift 3D coordinates to simulate a distant world origin.
     # Hartley normalization centres both sets; without it the
     # A matrix columns span wildly different scales.
     O = float(origin_offset)
     if O != 0.0:
-        pts2d = pts2d + O
         pts3d = pts3d + O
 
     T2, T3 = np.eye(3), np.eye(4)
@@ -342,12 +341,11 @@ def estimate_M_dlt(pts2d, pts3d, use_hartley=False, use_normal_eqs=False,
     if use_hartley:
         M_est = np.linalg.inv(T2) @ M_est @ T3
 
-    # Undo the origin offset: M maps shifted coords → shifted coords.
-    # Convert back: M_orig = T2_inv @ M_shifted @ T3_fwd
+    # Undo the 3D shift: M currently maps (X+O,Y+O,Z+O,1) → (u,v,1).
+    # We want M that maps (X,Y,Z,1) → (u,v,1), so M = M_shifted @ T3_fwd.
     if O != 0.0:
-        T2_inv  = np.array([[1, 0, -O], [0, 1, -O], [0, 0, 1]])
-        T3_fwd  = np.array([[1,0,0,O], [0,1,0,O], [0,0,1,O], [0,0,0,1]])
-        M_est = T2_inv @ M_est @ T3_fwd
+        T3_fwd = np.array([[1,0,0,O], [0,1,0,O], [0,0,1,O], [0,0,0,1]])
+        M_est = M_est @ T3_fwd
 
     # Undo the world scale: M currently maps (S*X,S*Y,S*Z,1) → (u,v,1).
     # We want M that maps (X,Y,Z,1) → (u,v,1), so M = M_s @ diag(S,S,S,1).
@@ -628,15 +626,15 @@ def main():
 
             dpg.add_spacer(width=8)
 
-            # Block 3: Coordinate Distortion ──────────────────────────────────
+            # Block 3: Coordinate Scale/Shift ─────────────────────────────────
             with dpg.child_window(width=330, height=170, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Coordinate Distortion", default_open=True):
+                with dpg.collapsing_header(label="3D Coordinate Shift/Scale", default_open=True):
                     with create_parameter_table():
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
                         add_parameter_row(
-                            "Offset 10^n", "offset_slider",
+                            "Shift 10^n", "offset_slider",
                             DEFAULTS["offset_exp"], 0, 8,
                             make_state_updater(state, "offset_exp"),
                             make_reset_callback(state, "offset_exp", "offset_slider", DEFAULTS["offset_exp"]),
@@ -852,9 +850,15 @@ def main():
             f"Train reproj: {res_str} px{probe_part}"
             f"{coplanar_warn}",
         )
+        if state.use_normal_eqs:
+            cond_label = f"\u03bb\u2099/\u03bb\u2082 = {cond_str}"
+            fit_label  = f"\u221a\u03bb\u2081 = {fit_str}"
+        else:
+            cond_label = f"\u03c3\u2081/\u03c3\u2099\u208b\u2081 = {cond_str}"
+            fit_label  = f"\u03c3\u2099 = {fit_str}"
         dpg.set_value(
             "status_text2",
-            f"fit residual = {fit_str}  "
+            f"fit residual ({fit_label})  "
             f"(~0 = perfect fit; grows with noise)",
         )
         # Build conditioning hint based on current settings
@@ -864,18 +868,18 @@ def main():
         elif has_distortion and state.use_hartley:
             cond_hint = "Normalization centred + rescaled \u2014 distortion neutralised"
         elif state.use_normal_eqs:
-            cond_hint = "A\u1d40A squares it \u2014 try Offset/Scale + Normalization"
+            cond_hint = "A\u1d40A squares it \u2014 try Shift/Scale + Normalization"
         else:
-            cond_hint = "Try Offset or World Scale, then toggle Normalization"
+            cond_hint = "Try Shift or Scale, then toggle Normalization"
         distort_parts = []
         if state.offset_exp > 0:
-            distort_parts.append(f"Offset=10^{state.offset_exp}")
+            distort_parts.append(f"Shift=10^{state.offset_exp}")
         if state.scale_exp > 0:
             distort_parts.append(f"Scale=10^{state.scale_exp}")
         distort_str = ("  |  " + ", ".join(distort_parts)) if distort_parts else ""
         dpg.set_value(
             "status_text3",
-            f"cond = {cond_str}{distort_str}  ({cond_hint})",
+            f"cond ({cond_label}){distort_str}  ({cond_hint})",
         )
 
         # ── M matrix display ─────────────────────────────────────────────────

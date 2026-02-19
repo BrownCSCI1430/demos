@@ -65,7 +65,10 @@ def load_fonts(size=14):
                 dpg.add_font_range(0x1D00, 0x1D7F)   # Phonetic Extensions (ᵀ)
                 dpg.add_font_range(0x2000, 0x206F)   # General Punctuation (—)
                 dpg.add_font_range(0x00D7, 0x00D7)   # × multiplication sign
+                dpg.add_font_range(0x0370, 0x03FF)   # Greek (σ λ)
+                dpg.add_font_range(0x2070, 0x209F)   # Super/Subscripts (₀₁₂ₙ₋)
                 dpg.add_font_range(0x2190, 0x21FF)   # Arrows (↑ ↓ ← →)
+                dpg.add_font_range(0x2200, 0x22FF)   # Math Operators (√)
             for mfp in _MONO_CANDIDATES:
                 if os.path.exists(mfp):
                     with dpg.font(mfp, size) as _mono_font:
