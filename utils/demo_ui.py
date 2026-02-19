@@ -3,7 +3,95 @@ Shared Dear PyGui UI utilities for CSCI 1430 computer vision demos.
 Contains callback factories, UI component builders, and viewport setup.
 """
 
+import os
 import dearpygui.dearpygui as dpg
+
+
+# =============================================================================
+# Font Loading
+# =============================================================================
+
+# Resolved font handles — set by load_fonts(), used by bind_mono_font()
+_default_font = None
+_mono_font = None
+
+# DejaVu Sans / Mono are bundled in demos/fonts/ (Bitstream Vera license,
+# freely redistributable — see demos/fonts/LICENSE_DEJAVU).
+_DEMOS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_FONTS_DIR = os.path.join(_DEMOS_DIR, "fonts")
+
+_SANS_CANDIDATES = [
+    os.path.join(_FONTS_DIR, "DejaVuSans.ttf"),
+    # Fallbacks: venv copy, then system fonts
+    os.path.join(_DEMOS_DIR, "..", ".venv", "Lib", "site-packages",
+                 "matplotlib", "mpl-data", "fonts", "ttf", "DejaVuSans.ttf"),
+    "C:/Windows/Fonts/segoeui.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",
+]
+
+_MONO_CANDIDATES = [
+    os.path.join(_FONTS_DIR, "DejaVuSansMono.ttf"),
+    os.path.join(_DEMOS_DIR, "..", ".venv", "Lib", "site-packages",
+                 "matplotlib", "mpl-data", "fonts", "ttf", "DejaVuSansMono.ttf"),
+    "C:/Windows/Fonts/consola.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+    "/System/Library/Fonts/Menlo.ttc",
+]
+
+
+def load_fonts(size=14):
+    """Load proportional + monospace fonts with Unicode glyph support.
+
+    Must be called after dpg.create_context() and before building any windows.
+    Binds the proportional font as the global default.
+
+    Args:
+        size: Font size in pixels (default 14)
+
+    Returns:
+        (default_font, mono_font) — DPG font handles.
+        Either may be None if no suitable font was found.
+    """
+    global _default_font, _mono_font
+
+    for fp in _SANS_CANDIDATES:
+        if not os.path.exists(fp):
+            continue
+        with dpg.font_registry():
+            with dpg.font(fp, size) as _default_font:
+                dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                dpg.add_font_range(0x1D00, 0x1D7F)   # Phonetic Extensions (ᵀ)
+                dpg.add_font_range(0x2000, 0x206F)   # General Punctuation (—)
+                dpg.add_font_range(0x00D7, 0x00D7)   # × multiplication sign
+            for mfp in _MONO_CANDIDATES:
+                if os.path.exists(mfp):
+                    with dpg.font(mfp, size) as _mono_font:
+                        dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
+                    break
+        dpg.bind_font(_default_font)
+        print(f"[fonts] Loaded: {os.path.basename(fp)}"
+              + (f"  mono: {os.path.basename(mfp)}" if _mono_font else ""))
+        break
+    else:
+        print("[fonts] No Unicode font found; using DPG default")
+
+    return _default_font, _mono_font
+
+
+def bind_mono_font(*tags):
+    """Bind the monospace font to the given DPG item tags.
+
+    No-op if load_fonts() hasn't been called or no mono font was found.
+
+    Args:
+        *tags: One or more DPG item tags (strings) to bind
+    """
+    if _mono_font is None:
+        return
+    for tag in tags:
+        dpg.bind_item_font(tag, _mono_font)
 
 
 # =============================================================================

@@ -43,6 +43,7 @@ from utils.demo_utils import convert_cv_to_dpg
 from utils.demo_ui import (
     setup_viewport, make_state_updater, make_reset_callback,
     create_parameter_table, add_parameter_row,
+    load_fonts, bind_mono_font,
 )
 
 
@@ -327,38 +328,35 @@ def estimate_M_dlt(pts2d, pts3d, use_hartley=False, use_normal_eqs=False):
 # Rendering Helpers
 # =============================================================================
 
-def draw_ground_grid(img, OV_K, OV_Rt, y_level=-1.8, n_lines=9):
-    """Project a floor grid onto the already-rendered overview image.
+def make_ground_grid(y_level=-1.8, n_lines=9, color=(55, 55, 55)):
+    """Build a ground-plane grid as a line-segment mesh for render_scene.
 
-    render_scene uses flip_y=True (cv2.flip vertically) to compensate for the
-    Y-up camera convention, so we must mirror our v coordinates to match.
+    Returns a mesh dict with 2-vertex faces (line segments) so the grid
+    participates in the painter's-algorithm depth sort instead of being
+    painted on top of everything.
     """
-    h = img.shape[0]
-
-    def proj(P):
-        ph = np.array([P[0], P[1], P[2], 1.0])
-        p = OV_K @ (OV_Rt @ ph)
-        if p[2] < 0.01:
-            return None
-        u, v = p[:2] / p[2]
-        v = h - 1 - v   # match render_scene's flip_y=True
-        return (int(u), int(v))
-
     xs = np.linspace(-2.5, 2.5, n_lines)
     zs = np.linspace(-0.5, 4.5, n_lines)
-    col = (55, 55, 55)
 
+    verts = []
+    faces = []
+    idx = 0
     for x in xs:
-        p1 = proj([x, y_level, zs[0]])
-        p2 = proj([x, y_level, zs[-1]])
-        if p1 and p2:
-            cv2.line(img, p1, p2, col, 1, cv2.LINE_AA)
-
+        verts.append([x, y_level, zs[0]])
+        verts.append([x, y_level, zs[-1]])
+        faces.append([idx, idx + 1])
+        idx += 2
     for z in zs:
-        p1 = proj([xs[0], y_level, z])
-        p2 = proj([xs[-1], y_level, z])
-        if p1 and p2:
-            cv2.line(img, p1, p2, col, 1, cv2.LINE_AA)
+        verts.append([xs[0], y_level, z])
+        verts.append([xs[-1], y_level, z])
+        faces.append([idx, idx + 1])
+        idx += 2
+
+    return {
+        "vertices": np.array(verts, dtype=np.float64),
+        "faces": faces,
+        "color": color,
+    }
 
 
 def _draw_diamond(img, center, size, color, thickness=2):
@@ -515,6 +513,8 @@ def main():
 
     dpg.create_context()
 
+    load_fonts()
+
     with dpg.handler_registry():
         dpg.add_mouse_wheel_handler(callback=on_mouse_wheel)
 
@@ -544,7 +544,7 @@ def main():
             )
             dpg.add_spacer(width=20)
             dpg.add_checkbox(
-                label="Solve via A^T A",
+                label="Solve via A\u1d40A",
                 default_value=DEFAULTS["use_normal_eqs"],
                 callback=on_normal_eqs, tag="normal_eqs_check",
             )
@@ -613,6 +613,8 @@ def main():
             with dpg.group():
                 dpg.add_text("Camera Matrix M  [3×4]", color=(200, 180, 255))
                 dpg.add_text("", tag="m_text", color=(220, 220, 220))
+
+    bind_mono_font("m_text", "a_matrix_text")
 
     setup_viewport(
         "Camera Calibration Demo (DLT)", 1480, 880,
@@ -713,13 +715,12 @@ def main():
             ]
         frustum = make_frustum_mesh(TRUE_K, _TRUE_Rt, IMG_W, IMG_H, near=0.5, far=9.0)
         axes    = make_axis_mesh(origin=(0, 0, 0), length=1.5)
+        grid    = [make_ground_grid()]
 
         overview_img = render_scene(
-            marker_meshes + frustum + axes, _OV_K, ov_Rt,
+            marker_meshes + frustum + axes + grid, _OV_K, ov_Rt,
             OVERVIEW_SIZE, OVERVIEW_SIZE,
         )
-        # Draw ground grid on top of the rendered scene
-        draw_ground_grid(overview_img, _OV_K, ov_Rt)
 
         # ── Off-plane probe projections (only shown in coplanar mode) ───────────
         if state.use_coplanar and len(PROBE_PTS3D) > 0:
@@ -755,7 +756,7 @@ def main():
             probe_part = ""
         if state.use_normal_eqs:
             dpg.set_value("solver_label",
-                          "Solver: A^T A eigenvalue  (squares the condition number)")
+                          "Solver: A\u1d40A eigenvalue  (squares the condition number)")
         else:
             dpg.set_value("solver_label",
                           "Solver: SVD  (numerically robust)")
@@ -772,7 +773,7 @@ def main():
         )
         if state.use_normal_eqs:
             cond_hint = ("Normalization reduces this; "
-                         "A^T A squares it -- try toggling Normalization!")
+                         "A\u1d40A squares it \u2014 try toggling Normalization!")
         else:
             cond_hint = ("Normalization reduces this; "
                          "SVD is robust so reproj barely changes")
@@ -802,7 +803,7 @@ def main():
             n_show = min(8, A.shape[0])
             lines  = [f"A  ({A.shape[0]}x12, first {n_show} rows shown):"]
             for r in range(n_show):
-                vals = "  ".join(f"{v:7.2f}" for v in A[r])
+                vals = "  ".join(f"{v:9.3f}" for v in A[r])
                 lines.append(f"  row {r}: [{vals}]")
             if A.shape[0] > n_show:
                 lines.append(f"  ... {A.shape[0]-n_show} more rows")
