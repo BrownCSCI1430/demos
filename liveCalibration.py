@@ -54,6 +54,7 @@ DEFAULTS = {
     "noise_px": 0.0,
     "n_points": 12,
     "ui_scale": 1.5,
+    "use_normal_eqs": False,
 }
 
 IMG_W, IMG_H   = 480, 480
@@ -175,9 +176,10 @@ def _depth_color(z):
 class State:
     noise_px    = DEFAULTS["noise_px"]
     n_points    = DEFAULTS["n_points"]
-    show_A_matrix = False
-    use_hartley   = False
-    use_coplanar  = False
+    show_A_matrix  = False
+    use_hartley    = False
+    use_coplanar   = False
+    use_normal_eqs = DEFAULTS["use_normal_eqs"]
     M_est    = None
     residual = float("inf")
     cond_A   = float("inf")
@@ -265,16 +267,20 @@ def build_A_matrix(pts2d, pts3d):
     return A
 
 
-def estimate_M_dlt(pts2d, pts3d, use_hartley=False):
-    """Estimate 3x4 M via DLT SVD.
+def estimate_M_dlt(pts2d, pts3d, use_hartley=False, use_normal_eqs=False):
+    """Estimate 3x4 M via DLT.
+
+    Parameters:
+        use_hartley    -- centre + scale points before solving (improves conditioning)
+        use_normal_eqs -- solve via eigenvalue of A^T A instead of SVD.
+                          This SQUARES the condition number, making normalization
+                          visibly critical for accuracy.
 
     Returns:
         M_est     -- 3x4 camera matrix (scaled so M[2,3]=1)
         A         -- 2Nx12 DLT matrix (unnormalised, for display)
-        cond_A    -- s[0]/s[-2]: conditioning of the constraint matrix
-                     (independent of the null-space direction; large = poorly conditioned)
-        fit_resid -- s[-1]: smallest singular value, measures how well Ah=0 is satisfied
-                     (~0 for perfect noise-free fit; grows with noise)
+        cond_A    -- conditioning metric (large = poorly conditioned)
+        fit_resid -- fit quality (~0 for a perfect fit; grows with noise)
     """
     assert len(pts2d) >= 6, "DLT needs at least 6 correspondences."
 
@@ -285,16 +291,24 @@ def estimate_M_dlt(pts2d, pts3d, use_hartley=False):
 
     A = build_A_matrix(pts2d, pts3d)
 
-    # Full SVD — we use singular values for both the solution and the metrics
-    _, s, Vt = np.linalg.svd(A)
-    m = Vt[-1]          # null-vector (smallest singular value direction)
-
-    # Condition number EXCLUDING the null space:
-    # s[-1] is ~0 (the solution direction), s[-2] is the next smallest.
-    # cond = s[0]/s[-2] captures ill-conditioning of the constraint matrix,
-    # which Hartley normalization directly reduces.
-    cond_A    = float(s[0]  / (s[-2] + 1e-12))
-    fit_resid = float(s[-1])   # ~0 for a perfect fit; grows with noise
+    if use_normal_eqs:
+        # Normal equations: eigenvalue of A^T A.
+        # This squares the condition number, making normalization critical.
+        ATA = A.T @ A
+        eigvals, eigvecs = np.linalg.eigh(ATA)
+        # eigvals sorted ascending; eigvecs[:,0] = smallest eigenvalue direction
+        m = eigvecs[:, 0]
+        # Condition: skip eigvals[0] (the null-space ~0 eigenvalue)
+        cond_A    = float(eigvals[-1] / (eigvals[1] + 1e-12))
+        fit_resid = float(np.sqrt(max(eigvals[0], 0.0)))
+    else:
+        # Standard SVD (numerically robust)
+        _, s, Vt = np.linalg.svd(A)
+        m = Vt[-1]          # null-vector (smallest singular value direction)
+        # Condition number EXCLUDING the null space:
+        # s[-1] is ~0 (the solution direction), s[-2] is the next smallest.
+        cond_A    = float(s[0]  / (s[-2] + 1e-12))
+        fit_resid = float(s[-1])
 
     M_est = m.reshape(3, 4)
     if use_hartley:
@@ -459,6 +473,9 @@ def on_hartley(sender, value):
 def on_coplanar(sender, value):
     state.use_coplanar = value
 
+def on_normal_eqs(sender, value):
+    state.use_normal_eqs = value
+
 def on_mouse_wheel(sender, app_data):
     """Zoom the overview orbit camera on scroll wheel."""
     if dpg.is_item_hovered("overview_img"):
@@ -467,16 +484,18 @@ def on_mouse_wheel(sender, app_data):
 def reset_all():
     state.noise_px = DEFAULTS["noise_px"]
     state.n_points = DEFAULTS["n_points"]
-    state.show_A_matrix = False
-    state.use_hartley   = False
-    state.use_coplanar  = False
+    state.show_A_matrix  = False
+    state.use_hartley    = False
+    state.use_coplanar   = False
+    state.use_normal_eqs = DEFAULTS["use_normal_eqs"]
     OvCam.reset()
     for tag, val in [
-        ("noise_slider",   DEFAULTS["noise_px"]),
-        ("npts_slider",    DEFAULTS["n_points"]),
-        ("show_A_check",   False),
-        ("hartley_check",  False),
-        ("coplanar_check", False),
+        ("noise_slider",     DEFAULTS["noise_px"]),
+        ("npts_slider",      DEFAULTS["n_points"]),
+        ("show_A_check",     False),
+        ("hartley_check",    False),
+        ("normal_eqs_check", DEFAULTS["use_normal_eqs"]),
+        ("coplanar_check",   False),
     ]:
         if dpg.does_item_exist(tag):
             dpg.set_value(tag, val)
@@ -525,6 +544,12 @@ def main():
             )
             dpg.add_spacer(width=20)
             dpg.add_checkbox(
+                label="Solve via A^T A",
+                default_value=DEFAULTS["use_normal_eqs"],
+                callback=on_normal_eqs, tag="normal_eqs_check",
+            )
+            dpg.add_spacer(width=20)
+            dpg.add_checkbox(
                 label="Coplanar (z=const)",
                 default_value=False, callback=on_coplanar, tag="coplanar_check",
             )
@@ -560,6 +585,7 @@ def main():
         dpg.add_separator()
 
         # ── Status bar ───────────────────────────────────────────────────────
+        dpg.add_text("", tag="solver_label", color=(160, 255, 160))
         dpg.add_text("", tag="status_text",  color=(255, 220, 100))
         dpg.add_text("", tag="status_text2", color=(180, 220, 255))
         dpg.add_text("", tag="status_text3", color=(180, 220, 255))
@@ -619,7 +645,7 @@ def main():
         # ── DLT ─────────────────────────────────────────────────────────────
         try:
             M_est, A, cond_A, fit_resid = estimate_M_dlt(
-                pts2d_noisy, pts3d, state.use_hartley)
+                pts2d_noisy, pts3d, state.use_hartley, state.use_normal_eqs)
             pts2d_est = _project(M_est, pts3d)
             diff      = pts2d_est - pts2d_true
             residual  = float(np.sqrt((diff**2).sum(axis=1)).mean())
@@ -637,14 +663,18 @@ def main():
         state.cond_A    = cond_A
         state.fit_resid = fit_resid
 
-        # Reference M — same N unique-(x,y) points at their REAL z values + same noise.
-        # Only needed in coplanar mode for the side-by-side matrix comparison.
+        # Reference M — N points from the general permutation (with full z-range)
+        # so the DLT is well-conditioned.  Only needed in coplanar mode for the
+        # side-by-side matrix comparison.
         if state.use_coplanar:
-            pts2d_real_true  = _project(TRUE_M, pts3d_orig)
-            pts2d_real_noisy = pts2d_real_true + _FIXED_NOISE[sel] * state.noise_px
+            ref_sel = _PERM[:N]
+            pts3d_ref       = VISIBLE_PTS3D[ref_sel]
+            pts2d_ref_true  = _project(TRUE_M, pts3d_ref)
+            pts2d_ref_noisy = pts2d_ref_true + _FIXED_NOISE[ref_sel] * state.noise_px
             try:
                 M_ref, _, _, _ = estimate_M_dlt(
-                    pts2d_real_noisy, pts3d_orig, state.use_hartley)
+                    pts2d_ref_noisy, pts3d_ref, state.use_hartley,
+                    state.use_normal_eqs)
             except Exception:
                 M_ref = TRUE_M.copy()
         else:
@@ -723,22 +753,32 @@ def main():
             probe_part = f"  |  Off-plane probe: {probe_str} px"
         else:
             probe_part = ""
+        if state.use_normal_eqs:
+            dpg.set_value("solver_label",
+                          "Solver: A^T A eigenvalue  (squares the condition number)")
+        else:
+            dpg.set_value("solver_label",
+                          "Solver: SVD  (numerically robust)")
         dpg.set_value(
             "status_text",
             f"N={N} pts  |  Noise={state.noise_px:.1f} px  |  "
-            f"Train reproj: {res_str} px{probe_part}  |  "
-            f"Hartley: {'ON' if state.use_hartley else 'OFF'}"
+            f"Train reproj: {res_str} px{probe_part}"
             f"{coplanar_warn}",
         )
         dpg.set_value(
             "status_text2",
-            f"cond(A) = s[0]/s[-2] = {cond_str}  "
-            f"(constraint matrix conditioning; Hartley reduces this)",
+            f"fit residual = {fit_str}  "
+            f"(~0 = perfect fit; grows with noise)",
         )
+        if state.use_normal_eqs:
+            cond_hint = ("Normalization reduces this; "
+                         "A^T A squares it -- try toggling Normalization!")
+        else:
+            cond_hint = ("Normalization reduces this; "
+                         "SVD is robust so reproj barely changes")
         dpg.set_value(
             "status_text3",
-            f"fit residual = s[-1] = {fit_str}  "
-            f"(~0 = perfect fit; grows with noise)",
+            f"cond = {cond_str}  ({cond_hint})",
         )
 
         # ── M matrix display ─────────────────────────────────────────────────
