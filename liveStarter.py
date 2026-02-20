@@ -12,7 +12,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
-from utils.demo_ui import add_global_controls, setup_viewport, make_state_updater
+from utils.demo_ui import add_global_controls, load_fonts, setup_viewport, make_state_updater
 
 # Default values
 DEFAULTS = {
@@ -142,6 +142,8 @@ def main():
 
     # Initialize Dear PyGui
     dpg.create_context()
+
+    load_fonts()
 
     with dpg.texture_registry():
         blank_data = [0.0] * (frame_width * frame_height * 4)

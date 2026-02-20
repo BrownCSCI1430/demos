@@ -13,7 +13,7 @@ import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import (convert_cv_to_dpg, init_camera, load_fallback_image, get_frame,
                               apply_affine_transform, apply_brightness)
-from utils.demo_ui import setup_viewport, make_state_updater, make_reset_callback
+from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback
 
 # Default values
 DEFAULTS = {
@@ -136,6 +136,8 @@ def main():
 
     dpg.create_context()
 
+    load_fonts()
+
     with dpg.texture_registry():
         blank_data = [0.0] * (frame_width * frame_height * 4)
         dpg.add_raw_texture(frame_width, frame_height, blank_data,
@@ -146,12 +148,12 @@ def main():
     with dpg.window(label="Harris Corners Demo", tag="main_window"):
         # Global controls row
         with dpg.group(horizontal=True):
-            dpg.add_slider_float(
+            dpg.add_combo(
                 label="UI Scale",
-                default_value=DEFAULTS["ui_scale"],
-                min_value=1.0, max_value=3.0,
-                callback=lambda s, v: dpg.set_global_font_scale(v),
-                width=100
+                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
+                default_value=str(DEFAULTS["ui_scale"]),
+                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
+                width=80
             )
             dpg.add_spacer(width=20)
             dpg.add_checkbox(

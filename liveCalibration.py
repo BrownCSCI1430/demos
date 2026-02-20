@@ -100,6 +100,12 @@ _ALL_PTS3D = np.array(
 )  # shape (125, 3)
 
 
+_SUPERSCRIPTS = str.maketrans("0123456789", "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079")
+def _sup(n):
+    """Convert an integer to Unicode superscript digits (e.g. 3 → '³')."""
+    return str(int(n)).translate(_SUPERSCRIPTS)
+
+
 def _project(M, pts3d):
     ph = np.column_stack([pts3d, np.ones(len(pts3d))])
     p = (M @ ph.T).T
@@ -571,10 +577,11 @@ def main():
 
         # ── Global controls ──────────────────────────────────────────────────
         with dpg.group(horizontal=True):
-            dpg.add_slider_float(
-                label="UI Scale", default_value=DEFAULTS["ui_scale"],
-                min_value=1.0, max_value=3.0, width=100,
-                callback=lambda s, v: dpg.set_global_font_scale(v),
+            dpg.add_combo(
+                label="UI Scale",
+                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
+                default_value=str(DEFAULTS["ui_scale"]), width=80,
+                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
             )
             dpg.add_spacer(width=20)
             dpg.add_button(label="Reset All", callback=lambda: reset_all())
@@ -634,14 +641,14 @@ def main():
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
                         add_parameter_row(
-                            "Shift 10^n", "offset_slider",
+                            "Shift 10\u207f", "offset_slider",
                             DEFAULTS["offset_exp"], 0, 8,
                             make_state_updater(state, "offset_exp"),
                             make_reset_callback(state, "offset_exp", "offset_slider", DEFAULTS["offset_exp"]),
                             slider_type="int", width=140,
                         )
                         add_parameter_row(
-                            "Scale 10^n", "scale_slider",
+                            "Scale 10\u207f", "scale_slider",
                             DEFAULTS["scale_exp"], 0, 6,
                             make_state_updater(state, "scale_exp"),
                             make_reset_callback(state, "scale_exp", "scale_slider", DEFAULTS["scale_exp"]),
@@ -873,9 +880,9 @@ def main():
             cond_hint = "Try Shift or Scale, then toggle Normalization"
         distort_parts = []
         if state.offset_exp > 0:
-            distort_parts.append(f"Shift=10^{state.offset_exp}")
+            distort_parts.append(f"Shift=10{_sup(state.offset_exp)}")
         if state.scale_exp > 0:
-            distort_parts.append(f"Scale=10^{state.scale_exp}")
+            distort_parts.append(f"Scale=10{_sup(state.scale_exp)}")
         distort_str = ("  |  " + ", ".join(distort_parts)) if distort_parts else ""
         dpg.set_value(
             "status_text3",

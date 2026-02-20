@@ -102,14 +102,17 @@ def bind_mono_font(*tags):
 # Callback Factories
 # =============================================================================
 
+UI_SCALES = ["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"]
+
+
 def make_ui_scale_callback():
-    """Create UI scale callback.
+    """Create UI scale callback (for combo dropdown).
 
     Returns:
         Callback function that updates global font scale
     """
     def callback(sender, value):
-        dpg.set_global_font_scale(value)
+        dpg.set_global_font_scale(float(value))
     return callback
 
 
@@ -168,13 +171,12 @@ def add_global_controls(defaults, state, cat_mode_callback, extra_controls_befor
     - "(no webcam)" text if camera unavailable
     """
     with dpg.group(horizontal=True):
-        dpg.add_slider_float(
+        dpg.add_combo(
             label="UI Scale",
-            default_value=defaults.get("ui_scale", 1.5),
-            min_value=1.0,
-            max_value=3.0,
+            items=UI_SCALES,
+            default_value=str(defaults.get("ui_scale", 1.5)),
             callback=make_ui_scale_callback(),
-            width=100
+            width=80
         )
         dpg.add_spacer(width=20)
 

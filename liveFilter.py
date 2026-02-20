@@ -14,7 +14,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
-from utils.demo_ui import setup_viewport, make_state_updater
+from utils.demo_ui import load_fonts, setup_viewport, make_state_updater
 from utils.demo_kernels import KERNEL_PRESETS as _KERNEL_PRESETS, SIGMA_KERNELS, ZERO_DC_KERNELS, create_kernel, resize_kernel
 
 # Default values
@@ -343,6 +343,8 @@ def main():
 
     dpg.create_context()
 
+    load_fonts()
+
     with dpg.texture_registry():
         blank_data = [0.0] * (frame_width * frame_height * 4)
         dpg.add_raw_texture(frame_width, frame_height, blank_data,
@@ -383,11 +385,11 @@ def main():
                 default_value=state.normalize_kernel,
                 callback=make_state_updater(state, "normalize_kernel")
             )
-            dpg.add_slider_float(
+            dpg.add_combo(
                 label="UI",
-                default_value=DEFAULTS["ui_scale"],
-                min_value=1.0, max_value=3.0,
-                callback=lambda s, v: dpg.set_global_font_scale(v),
+                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
+                default_value=str(DEFAULTS["ui_scale"]),
+                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
                 width=60
             )
             dpg.add_spacer(width=20)

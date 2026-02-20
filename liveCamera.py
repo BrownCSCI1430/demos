@@ -19,6 +19,7 @@ from utils.demo_3d import (
 )
 from utils.demo_utils import convert_cv_to_dpg
 from utils.demo_ui import (
+    load_fonts, bind_mono_font,
     setup_viewport, make_state_updater, make_reset_callback,
     create_parameter_table, add_parameter_row,
 )
@@ -235,6 +236,8 @@ def main():
     # Dear PyGui setup
     dpg.create_context()
 
+    load_fonts()
+
     with dpg.texture_registry(tag="texture_registry"):
         cam_w, cam_h = DEFAULTS["img_w"], DEFAULTS["img_h"]
         blank_cam = [0.0] * (cam_w * cam_h * 4)
@@ -247,12 +250,12 @@ def main():
     with dpg.window(label="3D Camera Demo", tag="main_window"):
         # --- Top controls ---
         with dpg.group(horizontal=True):
-            dpg.add_slider_float(
+            dpg.add_combo(
                 label="UI Scale",
-                default_value=DEFAULTS["ui_scale"],
-                min_value=1.0, max_value=3.0,
-                callback=lambda s, v: dpg.set_global_font_scale(v),
-                width=100,
+                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
+                default_value=str(DEFAULTS["ui_scale"]),
+                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
+                width=80,
             )
             dpg.add_spacer(width=20)
             dpg.add_text("Reference Frame:")
@@ -387,15 +390,15 @@ def main():
         # --- Matrix display: 3 panels side by side ---
         with dpg.group(horizontal=True):
             with dpg.group():
-                dpg.add_text("K (Intrinsic 3x3):", color=(150, 200, 255))
+                dpg.add_text("K (Intrinsic 3\u00d73):", color=(150, 200, 255))
                 dpg.add_text("", tag="k_text")
             dpg.add_spacer(width=30)
             with dpg.group():
-                dpg.add_text("[R|t] (Extrinsic 3x4):", color=(150, 255, 150))
+                dpg.add_text("[R|t] (Extrinsic 3\u00d74):", color=(150, 255, 150))
                 dpg.add_text("", tag="rt_text")
             dpg.add_spacer(width=30)
             with dpg.group():
-                dpg.add_text("M = K[R|t] (Full 3x4):", color=(255, 200, 150))
+                dpg.add_text("M = K[R|t] (Full 3\u00d74):", color=(255, 200, 150))
                 dpg.add_text("", tag="m_text")
 
         dpg.add_separator()
@@ -409,6 +412,8 @@ def main():
             with dpg.group():
                 dpg.add_text("Overview (with frustum)", color=(150, 255, 150))
                 dpg.add_image("overview_texture", tag="overview_image")
+
+    bind_mono_font("k_text", "rt_text", "m_text")
 
     # Viewport setup
     setup_viewport("3D Camera Demo", 1400, 850,

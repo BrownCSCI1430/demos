@@ -12,7 +12,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import init_camera, load_fallback_image, get_frame, DATA_DIR
-from utils.demo_ui import setup_viewport, make_state_updater, make_reset_callback
+from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback
 
 # Default values
 DEFAULTS = {
@@ -167,6 +167,8 @@ def main():
 
     dpg.create_context()
 
+    load_fonts()
+
     # Create texture registry and initial texture
     texture_width, texture_height = state.texture_width, state.texture_height
     state.texture_registry = dpg.add_texture_registry()
@@ -202,12 +204,12 @@ def main():
                 default_value=state.show_matches,
                 callback=make_state_updater(state, "show_matches")
             )
-            dpg.add_slider_float(
+            dpg.add_combo(
                 label="UI",
-                default_value=DEFAULTS["ui_scale"],
-                min_value=1.0, max_value=3.0,
-                callback=lambda s, v: dpg.set_global_font_scale(v),
-                width=80
+                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
+                default_value=str(DEFAULTS["ui_scale"]),
+                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
+                width=60
             )
             dpg.add_spacer(width=20)
             dpg.add_checkbox(

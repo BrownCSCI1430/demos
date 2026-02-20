@@ -12,7 +12,7 @@ from skimage import img_as_float
 from skimage.color import rgb2gray
 
 from utils.demo_utils import init_camera, load_fallback_image, convert_cv_to_dpg_float, crop_to_square, get_frame
-from utils.demo_ui import setup_viewport, make_state_updater, make_reset_callback
+from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback
 
 # Default values
 DEFAULTS = {
@@ -242,6 +242,8 @@ def main():
 
     dpg.create_context()
 
+    load_fonts()
+
     with dpg.texture_registry():
         blank_data = [0.0] * (dsize * dsize * 4)
         dpg.add_raw_texture(dsize, dsize, blank_data, format=dpg.mvFormat_Float_rgba, tag="input_texture")
@@ -260,12 +262,12 @@ def main():
                 tag="mode_combo",
                 width=160
             )
-            dpg.add_slider_float(
+            dpg.add_combo(
                 label="UI Scale",
-                default_value=DEFAULTS["ui_scale"],
-                min_value=1.0, max_value=3.0,
-                callback=lambda s, v: dpg.set_global_font_scale(v),
-                width=100
+                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
+                default_value=str(DEFAULTS["ui_scale"]),
+                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
+                width=80
             )
             dpg.add_spacer(width=20)
             dpg.add_checkbox(label="Pause", default_value=state.pause,
