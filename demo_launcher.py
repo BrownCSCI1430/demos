@@ -34,7 +34,7 @@ SECTIONS = [
             "default_resolution": "640x480",
         },
         "Fourier Transform": {
-            "file": "liveFFT.py",
+            "file": "liveFourier.py",
             "description": "Visualize 2D Fourier transforms with multiple modes: normal FFT, DC only, rotating dot, and frequency reconstruction.",
             "default_resolution": "320x240",
         },

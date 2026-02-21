@@ -73,6 +73,36 @@ def on_viewport_resize():
     update_image_sizes()
 
 
+def compute_sift_matches(frame, query_image, detector, match_distance, show_matches):
+    """Run SIFT matching between query and live frame.
+
+    Returns (output_bgr, good_matches_list).
+    """
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    if query_image is None or query_image.size == 0:
+        return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR), []
+
+    kp1, des1 = detector.detectAndCompute(query_image, None)
+    kp2, des2 = detector.detectAndCompute(gray, None)
+
+    good_matches = []
+    if des1 is not None and des2 is not None and len(des1) > 0 and len(des2) > 0:
+        bf = cv2.BFMatcher()
+        matches = bf.knnMatch(des1, des2, k=2)
+        for match in matches:
+            if len(match) == 2:
+                m, n = match
+                if m.distance < match_distance * n.distance:
+                    good_matches.append([m])
+
+    draw_matches = good_matches if show_matches else []
+    output = cv2.drawMatchesKnn(query_image, kp1, gray, kp2, draw_matches,
+                                flags=2, outImg=None,
+                                matchColor=(0, 155, 0),
+                                singlePointColor=(0, 255, 255))
+    return output, good_matches
+
+
 def update_query_image(sender, value):
     idx = state.image_names.index(value) if value in state.image_names else 0
     state.query_index = idx
@@ -277,35 +307,10 @@ def main():
         if frame is None:
             continue
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        output, good_matches = compute_sift_matches(
+            frame, state.query_image, detector,
+            state.match_distance, state.show_matches)
 
-        if state.query_image is not None and state.query_image.size > 0:
-            kp1, des1 = detector.detectAndCompute(state.query_image, None)
-            kp2, des2 = detector.detectAndCompute(gray, None)
-
-            good_matches = []
-            if des1 is not None and des2 is not None and len(des1) > 0 and len(des2) > 0:
-                bf = cv2.BFMatcher()
-                matches = bf.knnMatch(des1, des2, k=2)
-
-                for match in matches:
-                    if len(match) == 2:  # Only process if we got 2 matches
-                        m, n = match
-                        if m.distance < state.match_distance * n.distance:
-                            good_matches.append([m])
-
-            if state.show_matches:
-                output = cv2.drawMatchesKnn(state.query_image, kp1, gray, kp2, good_matches,
-                                           flags=2, outImg=None,
-                                           matchColor=(0, 155, 0),
-                                           singlePointColor=(0, 255, 255))
-            else:
-                output = cv2.drawMatchesKnn(state.query_image, kp1, gray, kp2, [],
-                                           flags=2, outImg=None,
-                                           singlePointColor=(0, 255, 255))
-        else:
-            output = gray
-            good_matches = []
 
         # Update texture - resize output to match texture size
         if len(output.shape) == 2:

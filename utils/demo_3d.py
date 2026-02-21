@@ -537,7 +537,7 @@ def compute_frustum_corners(K, Rt, img_w, img_h, near=0.3, far=5.0):
     return cam_pos, near_pts_world, far_pts_world
 
 
-def make_frustum_mesh(K, Rt, img_w, img_h, near=0.3, far=5.0):
+def make_frustum_mesh(K, Rt, img_w, img_h, near=0.3, far=5.0, color=(0, 200, 255)):
     """Create a wireframe mesh for the camera frustum.
 
     Returns a list of mesh dicts (frustum lines + camera origin marker).
@@ -573,7 +573,7 @@ def make_frustum_mesh(K, Rt, img_w, img_h, near=0.3, far=5.0):
     frustum_mesh = {
         "vertices": vertices,
         "faces": faces,
-        "color": (0, 200, 255),  # yellow-orange in BGR
+        "color": color,
     }
 
     return [frustum_mesh]

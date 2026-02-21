@@ -95,8 +95,14 @@ state = State()
 scene_meshes = create_default_scene()
 
 # Overview camera (fixed)
-overview_K = None
-overview_Rt = None
+overview_Rt = make_lookat_Rt(
+    eye=np.array([8.0, 6.0, 8.0]),
+    target=np.array([0.0, 0.5, 0.0]),
+)
+overview_K = build_intrinsic(
+    fov_to_focal(50, OVERVIEW_SIZE), fov_to_focal(50, OVERVIEW_SIZE),
+    0, OVERVIEW_SIZE / 2, OVERVIEW_SIZE / 2,
+)
 
 
 # =============================================================================
@@ -217,22 +223,50 @@ def on_viewport_resize():
 
 
 # =============================================================================
+# Computation (pure NumPy/OpenCV, no DPG dependency)
+# =============================================================================
+
+def compute_camera_frame(
+    focal_length, sensor_w, sensor_h, img_w, img_h,
+    skew, cx_offset, cy_offset,
+    rot_x, rot_y, rot_z, trans_x, trans_y, trans_z,
+    camera_frame,
+):
+    """Build K, [R|t], M matrices and render camera + overview images.
+
+    Returns (K, Rt, M, camera_img, overview_img).
+    """
+    iw, ih = int(img_w), int(img_h)
+    fx = focal_length * iw / sensor_w
+    fy = focal_length * ih / sensor_h
+    cx = iw / 2.0 + cx_offset
+    cy = ih / 2.0 + cy_offset
+    K = build_intrinsic(fx, fy, skew, cx, cy)
+
+    Rt, R = build_extrinsic(
+        rot_x, rot_y, rot_z,
+        trans_x, trans_y, trans_z,
+        1.0, camera_frame=camera_frame,
+    )
+
+    M = K @ Rt
+    camera_img = render_scene(scene_meshes, K, Rt, iw, ih)
+
+    frustum_meshes = make_frustum_mesh(K, Rt, iw, ih, near=0.3, far=5.0)
+    world_axes = make_axis_mesh(origin=(0, 0, 0), length=1.5)
+    cam_axes = make_camera_axes_mesh(Rt, length=0.8)
+    overview_meshes = scene_meshes + frustum_meshes + world_axes + cam_axes
+    overview_img = render_scene(overview_meshes, overview_K, overview_Rt,
+                                OVERVIEW_SIZE, OVERVIEW_SIZE)
+
+    return K, Rt, M, camera_img, overview_img
+
+
+# =============================================================================
 # Main
 # =============================================================================
 
 def main():
-    global overview_K, overview_Rt
-
-    # Setup overview camera
-    overview_Rt = make_lookat_Rt(
-        eye=np.array([8.0, 6.0, 8.0]),
-        target=np.array([0.0, 0.5, 0.0]),
-    )
-    overview_K = build_intrinsic(
-        fov_to_focal(50, OVERVIEW_SIZE), fov_to_focal(50, OVERVIEW_SIZE),
-        0, OVERVIEW_SIZE / 2, OVERVIEW_SIZE / 2,
-    )
-
     # Dear PyGui setup
     dpg.create_context()
 
@@ -430,34 +464,17 @@ def main():
             _recreate_camera_texture(iw, ih)
             state._prev_img_w, state._prev_img_h = iw, ih
 
-        # Build intrinsic K  (physical mm → pixel focal lengths)
-        fx = state.focal_length * iw / state.sensor_w
-        fy = state.focal_length * ih / state.sensor_h
-        cx = iw / 2.0 + state.cx_offset
-        cy = ih / 2.0 + state.cy_offset
-        K = build_intrinsic(fx, fy, state.skew, cx, cy)
-
-        # Build extrinsic [R|t]
-        Rt, R = build_extrinsic(
+        K, Rt, M, camera_img, overview_img = compute_camera_frame(
+            state.focal_length, state.sensor_w, state.sensor_h,
+            state.img_w, state.img_h,
+            state.skew, state.cx_offset, state.cy_offset,
             state.rot_x, state.rot_y, state.rot_z,
             state.trans_x, state.trans_y, state.trans_z,
-            1.0, camera_frame=state.camera_frame,
+            state.camera_frame,
         )
-
-        # Full camera matrix
-        M = K @ Rt
         state.K, state.Rt, state.M = K, Rt, M
-
-        # Render camera view
-        camera_img = render_scene(scene_meshes, K, Rt, iw, ih)
-
-        # Render overview (scene + frustum + axes)
-        frustum_meshes = make_frustum_mesh(K, Rt, iw, ih, near=0.3, far=5.0)
-        world_axes = make_axis_mesh(origin=(0, 0, 0), length=1.5)
-        cam_axes = make_camera_axes_mesh(Rt, length=0.8)
-        overview_meshes = scene_meshes + frustum_meshes + world_axes + cam_axes
-        overview_img = render_scene(overview_meshes, overview_K, overview_Rt,
-                                     OVERVIEW_SIZE, OVERVIEW_SIZE)
+        fx = state.focal_length * iw / state.sensor_w
+        fy = state.focal_length * ih / state.sensor_h
 
         # Update textures
         dpg.set_value(state._cam_texture_tag, convert_cv_to_dpg(camera_img))
