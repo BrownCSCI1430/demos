@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSCI 1430 Demo</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://pyscript.net/releases/2024.11.1/core.css">
+    <script type="module" src="https://pyscript.net/releases/2024.11.1/core.js"></script>
+</head>
+<body>
+    <header>
+        <a href="index.html" class="back-link">&larr; All Demos</a>
+        <h1>CSCI 1430 Interactive Demo</h1>
+    </header>
+
+    <!-- Loading indicator (visible during WASM init + pre-computation) -->
+    <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <p>Loading Python environment&hellip;</p>
+        <p class="loading-detail">
+            Initializing NumPy + OpenCV in WebAssembly (10&ndash;30s on first visit, cached after)
+        </p>
+    </div>
+
+    <!-- Demo container (hidden until adapter.py finishes setup) -->
+    <div id="demo-container" style="display: none;"></div>
+
+    <!-- PyScript entry point -->
+    <script type="py" src="adapter.py" config="pyscript.toml"></script>
+</body>
+</html>

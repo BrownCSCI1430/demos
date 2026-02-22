@@ -1,0 +1,70 @@
+name: Deploy Web Demos to Course Website
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout demos repo
+        uses: actions/checkout@v4
+        with:
+          path: demos
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies
+        run: pip install numpy opencv-python-headless
+
+      - name: Configure deploy key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.WEBSITE_DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          git config --global core.sshCommand "ssh -i ~/.ssh/deploy_key"
+
+      - name: Clone website repo
+        run: |
+          git clone --branch 2026_Spring --depth 1 \
+            git@github.com:BrownCSCI1430/browncsci1430.github.io.git website
+
+      - name: Run build
+        run: python demos/web/build_web.py
+        working-directory: demos
+
+      - name: Flatten output to website
+        run: |
+          rm -rf website/resources/interactive_demos
+          mkdir -p website/resources/interactive_demos
+          cp -r demos/web/vendor website/resources/interactive_demos/
+          cp -r demos/web/data website/resources/interactive_demos/
+          cp -r demos/web/frames website/resources/interactive_demos/
+          cp demos/web/adapter.py website/resources/interactive_demos/
+          cp demos/web/demo.html website/resources/interactive_demos/
+          cp demos/web/style.css website/resources/interactive_demos/
+          cp demos/web/pyscript.toml website/resources/interactive_demos/
+          cp demos/web/index.html website/resources/interactive_demos/
+
+      - name: Update submodule pointer
+        run: |
+          cd website
+          git submodule update --init resources/interactive_demos_python
+          cd resources/interactive_demos_python
+          git fetch origin main
+          git checkout origin/main
+
+      - name: Commit and push to website
+        run: |
+          cd website
+          git add resources/interactive_demos_python resources/interactive_demos/
+          git config --local user.name 'github-actions-bot'
+          git config --local user.email 'cs1430-github-actions[bot]@users.noreply.github.com'
+          git diff --staged --quiet || {
+            git commit -m "Auto-build interactive web demos"
+            git push origin 2026_Spring
+          }

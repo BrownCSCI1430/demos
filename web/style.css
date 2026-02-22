@@ -1,0 +1,309 @@
+/* CSCI 1430 Web Demos — Dark theme matching DearPyGui aesthetic */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background: #141418;
+    color: #d8d8d8;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 12px 24px;
+    background: #1a1a24;
+    border-bottom: 1px solid #2a2a3a;
+}
+
+header h1 {
+    font-size: 16px;
+    font-weight: 500;
+    color: #a0a0c0;
+}
+
+.back-link {
+    color: #6a9fd8;
+    text-decoration: none;
+    font-size: 13px;
+}
+.back-link:hover { text-decoration: underline; }
+
+/* ── Loading ───────────────────────────────────────────────────────────── */
+
+.loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    gap: 16px;
+    color: #808090;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #2a2a3a;
+    border-top-color: #6a9fd8;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading p { font-size: 15px; }
+.loading-detail { font-size: 12px; color: #606070; }
+
+/* ── Demo container ────────────────────────────────────────────────────── */
+
+#demo-container {
+    padding: 20px 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+#demo-container h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #c8c8e0;
+    margin-bottom: 4px;
+}
+
+.demo-description {
+    color: #808090;
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
+.controls {
+    background: #1a1a24;
+    border: 1px solid #2a2a3a;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+}
+
+.control-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 0;
+}
+
+.control-row label {
+    min-width: 100px;
+    font-size: 13px;
+    color: #a0a0b0;
+}
+
+.control-row input[type="range"] {
+    flex: 1;
+    max-width: 400px;
+    height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #2a2a3a;
+    border-radius: 3px;
+    outline: none;
+}
+
+.control-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #6a9fd8;
+    cursor: pointer;
+}
+
+.control-row input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #6a9fd8;
+    border: none;
+    cursor: pointer;
+}
+
+.slider-value {
+    min-width: 50px;
+    text-align: right;
+    font-family: "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 13px;
+    color: #b0b0c0;
+}
+
+.control-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #6a9fd8;
+    cursor: pointer;
+}
+
+.ctrl-select {
+    background: #2a2a3a;
+    color: #d8d8d8;
+    border: 1px solid #3a3a4a;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+}
+.ctrl-select:focus { border-color: #6a9fd8; }
+
+.ctrl-button {
+    background: #2a3a5a;
+    color: #c8d8e8;
+    border: 1px solid #3a4a6a;
+    border-radius: 4px;
+    padding: 4px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.ctrl-button:hover { background: #3a4a6a; }
+.ctrl-button:active { background: #4a5a7a; }
+
+.reset-btn {
+    background: #2a2a3a;
+    color: #808090;
+    border: 1px solid #3a3a4a;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: 11px;
+    cursor: pointer;
+    line-height: 1.2;
+}
+.reset-btn:hover { background: #3a3a4a; color: #c0c0d0; }
+
+/* ── Status ────────────────────────────────────────────────────────────── */
+
+.status {
+    font-family: "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 13px;
+    color: #e0c860;
+    background: #1a1a24;
+    border: 1px solid #2a2a3a;
+    border-radius: 6px;
+    padding: 8px 16px;
+    margin-bottom: 16px;
+    min-height: 28px;
+}
+
+/* ── Canvas grid ───────────────────────────────────────────────────────── */
+
+.canvas-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.canvas-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.canvas-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.canvas-label {
+    font-size: 12px;
+    color: #80a0c0;
+}
+
+.canvas-cell canvas {
+    border: 1px solid #2a2a3a;
+    border-radius: 4px;
+    background: #0a0a0e;
+}
+
+/* ── Index page (demo picker) ──────────────────────────────────────────── */
+
+.index-container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 32px 24px;
+}
+
+.index-container h1 {
+    font-size: 24px;
+    color: #c8c8e0;
+    margin-bottom: 24px;
+}
+
+.section-heading {
+    font-size: 15px;
+    font-weight: 600;
+    color: #a0a0c0;
+    margin: 24px 0 12px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #2a2a3a;
+}
+
+.demo-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+}
+
+.demo-card {
+    background: #1a1a24;
+    border: 1px solid #2a2a3a;
+    border-radius: 8px;
+    padding: 14px 16px;
+    transition: border-color 0.15s;
+}
+
+.demo-card:hover { border-color: #4a4a6a; }
+
+.demo-card a {
+    color: #6a9fd8;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 14px;
+}
+.demo-card a:hover { text-decoration: underline; }
+
+.demo-card .desc {
+    font-size: 12px;
+    color: #707080;
+    margin-top: 4px;
+}
+
+.demo-card.unavailable {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.demo-card .badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.badge-available {
+    background: #1a3a2a;
+    color: #50c070;
+}
+
+.badge-soon {
+    background: #2a2a30;
+    color: #707080;
+}
