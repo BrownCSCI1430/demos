@@ -21,15 +21,13 @@ jobs:
         run: pip install numpy opencv-python-headless
 
       - name: Configure deploy key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.WEBSITE_DEPLOY_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-          git config --global core.sshCommand "ssh -i ~/.ssh/deploy_key"
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.WEBSITE_DEPLOY_KEY }}
 
       - name: Clone website repo
         run: |
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
           git clone --branch 2026_Spring --depth 1 \
             git@github.com:BrownCSCI1430/browncsci1430.github.io.git website
 
