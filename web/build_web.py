@@ -263,6 +263,21 @@ def main():
     print()
     copy_vendor()
     copy_data()
+
+    # Guard: empty .py files break on GitHub Pages (returns HTML error page
+    # instead of empty content, which PyScript then tries to parse as Python).
+    empty = []
+    for check_dir in [FRAMES_DIR, VENDOR_DIR]:
+        for root, _dirs, files in os.walk(check_dir):
+            for f in files:
+                p = os.path.join(root, f)
+                if f.endswith(".py") and os.path.getsize(p) == 0:
+                    empty.append(os.path.relpath(p, SCRIPT_DIR))
+    if empty:
+        sys.exit(f"ERROR: Empty .py files will break on GitHub Pages:\n"
+                 + "\n".join(f"  {p}" for p in empty)
+                 + "\nAdd a comment so they are non-empty.")
+
     generate_toml()
     generate_index()
     print("\nDone. Serve with:  python -m http.server 8000")
