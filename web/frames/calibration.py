@@ -49,31 +49,39 @@ WEB_CONFIG = {
     ],
     "controls": {
         "noise_px": {
+            "group": "Input Data",
             "type": "float", "min": 0.0, "max": 20.0, "step": 0.1,
             "default": DEFAULTS["noise_px"], "label": "Noise (px)",
         },
         "n_points": {
+            "group": "Input Data",
             "type": "int", "min": 6, "max": min(N_AVAILABLE, 80), "step": 1,
             "default": DEFAULTS["n_points"], "label": "# Points", "format": "d",
         },
+        "use_coplanar": {
+            "group": "Input Data",
+            "type": "bool", "default": False, "label": "Coplanar (z=const)",
+        },
+        "use_hartley": {
+            "group": "Solver",
+            "type": "bool", "default": False, "label": "Hartley Normalize",
+        },
+        "use_normal_eqs": {
+            "group": "Solver",
+            "type": "bool", "default": False, "label": "Solve via A^T A",
+        },
         "offset_exp": {
+            "group": "3D Coordinate Shift/Scale",
             "type": "int", "min": 0, "max": 8, "step": 1,
             "default": DEFAULTS["offset_exp"], "label": "Origin Shift (10^n)", "format": "d",
         },
         "scale_exp": {
+            "group": "3D Coordinate Shift/Scale",
             "type": "int", "min": 0, "max": 6, "step": 1,
             "default": DEFAULTS["scale_exp"], "label": "World Scale (10^n)", "format": "d",
         },
-        "use_coplanar": {
-            "type": "bool", "default": False, "label": "Coplanar (z=const)",
-        },
-        "use_hartley": {
-            "type": "bool", "default": False, "label": "Hartley Normalize",
-        },
-        "use_normal_eqs": {
-            "type": "bool", "default": False, "label": "Solve via A^T A",
-        },
         "show_A": {
+            "group": "Inspect",
             "type": "bool", "default": False, "label": "Show A Matrix",
         },
         "reset_all": {

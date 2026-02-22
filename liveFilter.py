@@ -14,7 +14,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater
+from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, add_global_controls, make_reset_callback
 from utils.demo_kernels import KERNEL_PRESETS as _KERNEL_PRESETS, SIGMA_KERNELS, ZERO_DC_KERNELS, create_kernel, resize_kernel
 
 # Default values
@@ -353,55 +353,42 @@ def main():
                             format=dpg.mvFormat_Float_rgba, tag="filtered_texture")
 
     with dpg.window(label="Interactive Filter Demo", tag="main_window"):
-        # Top row controls
-        with dpg.group(horizontal=True):
-            dpg.add_combo(
-                label="Kernel",
-                items=KERNEL_PRESETS,
-                default_value=state.kernel_type,
-                callback=update_kernel_type,
-                tag="kernel_combo",
-                width=120
-            )
-            dpg.add_slider_int(
-                label="Size",
-                default_value=state.kernel_size,
-                min_value=3, max_value=15,
-                callback=update_kernel_size,
-                tag="size_slider",
-                width=100
-            )
-            dpg.add_slider_float(
-                label="Sigma",
-                default_value=state.gaussian_sigma,
-                min_value=0.1, max_value=5.0,
-                callback=update_gaussian_sigma,
-                tag="sigma_slider",
-                width=80,
-                show=(state.kernel_type in SIGMA_KERNELS)
-            )
-            dpg.add_checkbox(
-                label="Normalize",
-                default_value=state.normalize_kernel,
-                callback=make_state_updater(state, "normalize_kernel")
-            )
-            dpg.add_combo(
-                label="UI",
-                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
-                default_value=str(DEFAULTS["ui_scale"]),
-                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
-                width=60
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_checkbox(
-                label="Cat Mode",
-                default_value=state.cat_mode,
-                callback=make_state_updater(state, "cat_mode"),
-                tag="cat_mode_checkbox",
-                enabled=state.use_camera
-            )
-            if not state.use_camera:
-                dpg.add_text("(no webcam)", color=(255, 100, 100))
+        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"))
+
+        dpg.add_separator()
+
+        with dpg.collapsing_header(label="Kernel", default_open=True):
+            with dpg.group(horizontal=True):
+                dpg.add_combo(
+                    label="Kernel",
+                    items=KERNEL_PRESETS,
+                    default_value=state.kernel_type,
+                    callback=update_kernel_type,
+                    tag="kernel_combo",
+                    width=120
+                )
+                dpg.add_slider_int(
+                    label="Size",
+                    default_value=state.kernel_size,
+                    min_value=3, max_value=15,
+                    callback=update_kernel_size,
+                    tag="size_slider",
+                    width=100
+                )
+                dpg.add_slider_float(
+                    label="Sigma",
+                    default_value=state.gaussian_sigma,
+                    min_value=0.1, max_value=5.0,
+                    callback=update_gaussian_sigma,
+                    tag="sigma_slider",
+                    width=80,
+                    show=(state.kernel_type in SIGMA_KERNELS)
+                )
+                dpg.add_checkbox(
+                    label="Normalize",
+                    default_value=state.normalize_kernel,
+                    callback=make_state_updater(state, "normalize_kernel")
+                )
 
         dpg.add_separator()
         dpg.add_text("Left-click: +0.1  |  Right-click: -0.1  |  Shift+click: +/-1.0  |  Ctrl+click: set to 0",

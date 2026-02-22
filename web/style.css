@@ -91,6 +91,45 @@ header h1 {
     margin-bottom: 12px;
 }
 
+/* Collapsible control groups (matches DearPyGui collapsing_header) */
+.control-group {
+    margin: 6px 0;
+    border: 1px solid #2a2a3a;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.control-group summary {
+    cursor: pointer;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #c0c0d0;
+    background: #22222e;
+    user-select: none;
+    list-style: none;          /* hide default arrow */
+}
+
+.control-group summary::-webkit-details-marker { display: none; }
+
+.control-group summary::before {
+    content: "▸ ";
+    display: inline;
+    font-size: 11px;
+}
+
+.control-group[open] > summary::before {
+    content: "▾ ";
+}
+
+.control-group summary:hover {
+    background: #2a2a3a;
+}
+
+.control-group > .control-row {
+    padding: 4px 12px;
+}
+
 .control-row {
     display: flex;
     align-items: center;

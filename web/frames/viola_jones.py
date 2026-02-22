@@ -55,24 +55,29 @@ WEB_CONFIG = {
     ],
     "controls": {
         "cascade_type": {
+            "group": "Detection Parameters",
             "type": "choice",
             "options": list(CASCADES.keys()),
             "default": "frontalface_default",
             "label": "Cascade",
         },
         "scale_factor": {
+            "group": "Detection Parameters",
             "type": "float", "min": 1.01, "max": 2.0, "step": 0.01,
             "default": 1.1, "label": "Scale Factor",
         },
         "min_neighbors": {
+            "group": "Detection Parameters",
             "type": "int", "min": 1, "max": 10, "step": 1,
             "default": 3, "label": "Min Neighbors", "format": "d",
         },
         "min_size": {
+            "group": "Detection Parameters",
             "type": "int", "min": 10, "max": 200, "step": 5,
             "default": 30, "label": "Min Size", "format": "d",
         },
         "show_boxes": {
+            "group": "Detection Parameters",
             "type": "bool", "default": True, "label": "Show Boxes",
         },
     },

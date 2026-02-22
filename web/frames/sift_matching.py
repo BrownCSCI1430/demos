@@ -49,14 +49,17 @@ WEB_CONFIG = {
     ],
     "controls": {
         "query_image": {
+            "group": "Matching",
             "type": "choice", "options": _QUERY_NAMES,
             "default": _QUERY_NAMES[0], "label": "Query Image",
         },
         "match_distance": {
+            "group": "Matching",
             "type": "float", "min": 0.1, "max": 1.0, "step": 0.01,
             "default": 0.55, "label": "Distance Ratio",
         },
         "show_matches": {
+            "group": "Matching",
             "type": "bool", "default": True, "label": "Show Matches",
         },
     },

@@ -30,58 +30,72 @@ WEB_CONFIG = {
             "default": "World", "label": "Reference Frame",
         },
         "img_w": {
+            "group": "Projection to Pixels",
             "type": "int", "min": 100, "max": 800, "step": 10,
             "default": DEFAULTS["img_w"], "label": "img_w (px)", "format": "d",
         },
         "img_h": {
+            "group": "Projection to Pixels",
             "type": "int", "min": 100, "max": 800, "step": 10,
             "default": DEFAULTS["img_h"], "label": "img_h (px)", "format": "d",
         },
         "skew": {
+            "group": "Projection to Pixels",
             "type": "float", "min": -500.0, "max": 500.0, "step": 1.0,
             "default": DEFAULTS["skew"], "label": "Skew s (px)", "format": ".1f",
         },
         "cx_offset": {
+            "group": "Projection to Pixels",
             "type": "float", "min": -200.0, "max": 200.0, "step": 1.0,
             "default": DEFAULTS["cx_offset"], "label": "cx offset (px)", "format": ".1f",
         },
         "cy_offset": {
+            "group": "Projection to Pixels",
             "type": "float", "min": -200.0, "max": 200.0, "step": 1.0,
             "default": DEFAULTS["cy_offset"], "label": "cy offset (px)", "format": ".1f",
         },
         "focal_length": {
+            "group": "Physical Camera",
             "type": "float", "min": 5.0, "max": 200.0, "step": 0.5,
             "default": DEFAULTS["focal_length"], "label": "Focal (mm)",
         },
         "sensor_w": {
+            "group": "Physical Camera",
             "type": "float", "min": 5.0, "max": 100.0, "step": 0.5,
             "default": DEFAULTS["sensor_w"], "label": "Sensor W (mm)",
         },
         "sensor_h": {
+            "group": "Physical Camera",
             "type": "float", "min": 5.0, "max": 100.0, "step": 0.5,
             "default": DEFAULTS["sensor_h"], "label": "Sensor H (mm)",
         },
         "rot_x": {
+            "group": "Extrinsic [R|t]",
             "type": "float", "min": -3.14159, "max": 3.14159, "step": 0.01,
             "default": DEFAULTS["rot_x"], "label": "Rot X (rad)",
         },
         "rot_y": {
+            "group": "Extrinsic [R|t]",
             "type": "float", "min": -3.14159, "max": 3.14159, "step": 0.01,
             "default": DEFAULTS["rot_y"], "label": "Rot Y (rad)",
         },
         "rot_z": {
+            "group": "Extrinsic [R|t]",
             "type": "float", "min": -3.14159, "max": 3.14159, "step": 0.01,
             "default": DEFAULTS["rot_z"], "label": "Rot Z (rad)",
         },
         "trans_x": {
+            "group": "Extrinsic [R|t]",
             "type": "float", "min": -10.0, "max": 10.0, "step": 0.1,
             "default": DEFAULTS["trans_x"], "label": "Trans X",
         },
         "trans_y": {
+            "group": "Extrinsic [R|t]",
             "type": "float", "min": -10.0, "max": 10.0, "step": 0.1,
             "default": DEFAULTS["trans_y"], "label": "Trans Y",
         },
         "trans_z": {
+            "group": "Extrinsic [R|t]",
             "type": "float", "min": -10.0, "max": 10.0, "step": 0.1,
             "default": DEFAULTS["trans_z"], "label": "Trans Z",
         },

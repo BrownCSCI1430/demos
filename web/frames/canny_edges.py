@@ -20,14 +20,17 @@ WEB_CONFIG = {
     ],
     "controls": {
         "blur_sigma": {
+            "group": "Edge Detection",
             "type": "float", "min": 0.1, "max": 10.0, "step": 0.1,
             "default": 1.0, "label": "Blur \u03c3",
         },
         "canny_low": {
+            "group": "Edge Detection",
             "type": "int", "min": 1, "max": 255, "step": 1,
             "default": 10, "label": "Threshold Low", "format": "d",
         },
         "canny_high": {
+            "group": "Edge Detection",
             "type": "int", "min": 1, "max": 255, "step": 1,
             "default": 70, "label": "Threshold High", "format": "d",
         },

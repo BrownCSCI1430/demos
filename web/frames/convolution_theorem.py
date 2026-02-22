@@ -72,29 +72,35 @@ WEB_CONFIG = {
             "default": "Convolution", "label": "Mode",
         },
         "kernel_type": {
+            "group": "Kernel",
             "type": "choice", "options": KERNELS,
             "default": "Gaussian", "label": "Kernel",
         },
         "kernel_size": {
+            "group": "Kernel",
             "type": "int", "min": 3, "max": 51, "step": 2,
             "default": 15, "label": "Kernel Size", "format": "d",
         },
         "sigma": {
+            "group": "Kernel",
             "type": "float", "min": 0.1, "max": 15.0, "step": 0.1,
             "default": 3.0, "label": "Sigma",
         },
+        "regenerate": {
+            "group": "Kernel",
+            "type": "button", "label": "Regenerate Random Kernel",
+            "visible_when": {"kernel_type": ["Random"]},
+        },
         "use_regularization": {
+            "group": "Regularization",
             "type": "bool", "default": False, "label": "Regularization",
             "visible_when": {"mode": ["Deconvolution"]},
         },
         "reg_lambda": {
+            "group": "Regularization",
             "type": "float", "min": 0.0001, "max": 0.5, "step": 0.001,
             "default": 0.01, "label": "Reg. Lambda", "format": ".4f",
             "visible_when": {"mode": ["Deconvolution"]},
-        },
-        "regenerate": {
-            "type": "button", "label": "Regenerate Random Kernel",
-            "visible_when": {"kernel_type": ["Random"]},
         },
         "pause": {
             "type": "bool", "default": False, "label": "Pause",

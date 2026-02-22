@@ -48,42 +48,52 @@ WEB_CONFIG = {
     ],
     "controls": {
         "block_size": {
+            "group": "Harris Detection",
             "type": "int", "min": 2, "max": 10, "step": 1,
             "default": 2, "label": "Block Size", "format": "d",
         },
         "ksize": {
+            "group": "Harris Detection",
             "type": "int", "min": 3, "max": 31, "step": 2,
             "default": 5, "label": "Sobel K", "format": "d",
         },
         "k": {
+            "group": "Harris Detection",
             "type": "float", "min": 0.01, "max": 0.3, "step": 0.01,
             "default": 0.07, "label": "Harris k",
         },
         "threshold": {
+            "group": "Harris Detection",
             "type": "float", "min": 0.001, "max": 0.1, "step": 0.001,
             "default": 0.01, "label": "Threshold", "format": ".3f",
         },
         "rotation": {
+            "group": "Transforms",
             "type": "float", "min": -180.0, "max": 180.0, "step": 1.0,
             "default": 0.0, "label": "Rotate", "format": ".0f",
         },
         "scale": {
+            "group": "Transforms",
             "type": "float", "min": 0.25, "max": 4.0, "step": 0.05,
             "default": 1.0, "label": "Scale",
         },
         "translate_x": {
+            "group": "Transforms",
             "type": "float", "min": -50.0, "max": 50.0, "step": 1.0,
             "default": 0.0, "label": "Translate X", "format": ".0f",
         },
         "translate_y": {
+            "group": "Transforms",
             "type": "float", "min": -50.0, "max": 50.0, "step": 1.0,
             "default": 0.0, "label": "Translate Y", "format": ".0f",
         },
         "brightness_scale": {
+            "group": "Brightness",
             "type": "float", "min": 0.5, "max": 2.0, "step": 0.05,
             "default": 1.0, "label": "Brightness Scale",
         },
         "brightness_shift": {
+            "group": "Brightness",
             "type": "float", "min": -100.0, "max": 100.0, "step": 1.0,
             "default": 0.0, "label": "Brightness Shift", "format": ".0f",
         },

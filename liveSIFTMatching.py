@@ -12,7 +12,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import init_camera, load_fallback_image, get_frame, DATA_DIR
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback
+from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback, add_global_controls
 
 # Default values
 DEFAULTS = {
@@ -209,48 +209,35 @@ def main():
                       parent=state.texture_registry)
 
     with dpg.window(label="SIFT Matching Demo", tag="main_window"):
-        # Top row controls
-        with dpg.group(horizontal=True):
-            dpg.add_combo(
-                label="Query",
-                items=state.image_names,
-                default_value=state.image_names[0] if state.image_names else "",
-                callback=update_query_image,
-                tag="query_combo",
-                width=150
-            )
-            dpg.add_slider_float(
-                label="Distance Ratio",
-                default_value=state.match_distance,
-                min_value=0.1, max_value=1.0,
-                callback=make_state_updater(state, "match_distance"),
-                tag="distance_slider",
-                width=120
-            )
-            dpg.add_button(label="R",
-                          callback=make_reset_callback(state, "match_distance", "distance_slider", DEFAULTS["match_distance"]))
-            dpg.add_checkbox(
-                label="Show Matches",
-                default_value=state.show_matches,
-                callback=make_state_updater(state, "show_matches")
-            )
-            dpg.add_combo(
-                label="UI",
-                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
-                default_value=str(DEFAULTS["ui_scale"]),
-                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
-                width=60
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_checkbox(
-                label="Cat Mode",
-                default_value=state.cat_mode,
-                callback=make_state_updater(state, "cat_mode"),
-                tag="cat_mode_checkbox",
-                enabled=state.use_camera
-            )
-            if not state.use_camera:
-                dpg.add_text("(no webcam)", color=(255, 100, 100))
+        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"))
+
+        dpg.add_separator()
+
+        with dpg.collapsing_header(label="Matching", default_open=True):
+            with dpg.group(horizontal=True):
+                dpg.add_combo(
+                    label="Query",
+                    items=state.image_names,
+                    default_value=state.image_names[0] if state.image_names else "",
+                    callback=update_query_image,
+                    tag="query_combo",
+                    width=150
+                )
+                dpg.add_slider_float(
+                    label="Distance Ratio",
+                    default_value=state.match_distance,
+                    min_value=0.1, max_value=1.0,
+                    callback=make_state_updater(state, "match_distance"),
+                    tag="distance_slider",
+                    width=120
+                )
+                dpg.add_button(label="R",
+                              callback=make_reset_callback(state, "match_distance", "distance_slider", DEFAULTS["match_distance"]))
+                dpg.add_checkbox(
+                    label="Show Matches",
+                    default_value=state.show_matches,
+                    callback=make_state_updater(state, "show_matches")
+                )
 
         dpg.add_text("", tag="status_text")
         dpg.add_separator()

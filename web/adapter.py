@@ -178,7 +178,31 @@ def _build_ui():
 
         controls_div.appendChild(row)
 
+    # Group-aware control rendering: controls with the same "group" key are
+    # wrapped in a collapsible <details> element, matching DearPyGui's
+    # collapsing_header() sections.
+    _current_group = None
+    _group_el = None
+
     for ctrl_id, ctrl in _controls.items():
+        group = ctrl.get("group")
+
+        if group != _current_group:
+            # Flush previous group
+            if _group_el is not None:
+                controls_div.appendChild(_group_el)
+            # Start new group (or back to ungrouped)
+            if group is not None:
+                _group_el = document.createElement("details")
+                _group_el.className = "control-group"
+                _group_el.open = True
+                summary = document.createElement("summary")
+                summary.textContent = group
+                _group_el.appendChild(summary)
+            else:
+                _group_el = None
+            _current_group = group
+
         row = document.createElement("div")
         row.className = "control-row"
         row.id = f"ctrl-row-{ctrl_id}"
@@ -256,7 +280,12 @@ def _build_ui():
             rbtn.dataset.ctrl = ctrl_id
             row.appendChild(rbtn)
 
-        controls_div.appendChild(row)
+        target = _group_el if _group_el is not None else controls_div
+        target.appendChild(row)
+
+    # Flush last group
+    if _group_el is not None:
+        controls_div.appendChild(_group_el)
 
     container.appendChild(controls_div)
 

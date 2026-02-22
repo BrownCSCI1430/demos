@@ -22,18 +22,22 @@ WEB_CONFIG = {
     ],
     "controls": {
         "win_stride": {
+            "group": "Detection Parameters",
             "type": "int", "min": 4, "max": 16, "step": 4,
             "default": 8, "label": "Win Stride", "format": "d",
         },
         "scale": {
+            "group": "Detection Parameters",
             "type": "float", "min": 1.01, "max": 1.5, "step": 0.01,
             "default": 1.05, "label": "Scale",
         },
         "threshold": {
+            "group": "Detection Parameters",
             "type": "float", "min": 0.0, "max": 1.0, "step": 0.05,
             "default": 0.0, "label": "Hit Threshold",
         },
         "show_boxes": {
+            "group": "Detection Parameters",
             "type": "bool", "default": True, "label": "Show Boxes",
         },
     },

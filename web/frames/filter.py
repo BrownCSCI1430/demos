@@ -116,19 +116,23 @@ WEB_CONFIG = {
     ],
     "controls": {
         "kernel_type": {
+            "group": "Kernel",
             "type": "choice", "options": _ALL_PRESETS,
             "default": "Box Blur", "label": "Kernel",
         },
         "kernel_size": {
+            "group": "Kernel",
             "type": "int", "min": 3, "max": 15, "step": 2,
             "default": 3, "label": "Kernel Size", "format": "d",
         },
         "sigma": {
+            "group": "Kernel",
             "type": "float", "min": 0.1, "max": 5.0, "step": 0.1,
             "default": 1.0, "label": "Sigma",
             "visible_when": {"kernel_type": list(SIGMA_KERNELS)},
         },
         "normalize": {
+            "group": "Kernel",
             "type": "bool", "default": True, "label": "Normalize",
         },
     },

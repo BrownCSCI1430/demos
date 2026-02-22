@@ -38,49 +38,61 @@ WEB_CONFIG = {
             "default": "Normal FFT", "label": "Mode",
         },
         "intensity_shift": {
+            "group": "Input Intensity",
             "type": "float", "min": -1.0, "max": 1.0, "step": 0.01,
             "default": 0.0, "label": "Intensity Shift",
         },
         "intensity_scale": {
+            "group": "Input Intensity",
             "type": "float", "min": 0.0, "max": 3.0, "step": 0.01,
             "default": 1.0, "label": "Intensity Scale",
         },
         "rotation": {
+            "group": "Input 2D Transforms",
             "type": "float", "min": -180.0, "max": 180.0, "step": 1.0,
             "default": 0.0, "label": "Rotation", "format": ".0f",
         },
         "scale": {
+            "group": "Input 2D Transforms",
             "type": "float", "min": 0.25, "max": 4.0, "step": 0.05,
             "default": 1.0, "label": "Scale",
         },
         "translate_x": {
+            "group": "Input 2D Transforms",
             "type": "float", "min": -100.0, "max": 100.0, "step": 1.0,
             "default": 0.0, "label": "Translate X", "format": ".0f",
         },
         "translate_y": {
+            "group": "Input 2D Transforms",
             "type": "float", "min": -100.0, "max": 100.0, "step": 1.0,
             "default": 0.0, "label": "Translate Y", "format": ".0f",
         },
         "dc_shift": {
+            "group": "Fourier Parameters",
             "type": "float", "min": -1.0, "max": 1.0, "step": 0.01,
             "default": 0.0, "label": "DC Shift",
         },
         "amplitude_scalar": {
+            "group": "Fourier Parameters",
             "type": "float", "min": 0.1, "max": 5.0, "step": 0.1,
             "default": 1.0, "label": "Amplitude Scale",
         },
         "phase_offset": {
+            "group": "Fourier Parameters",
             "type": "float", "min": -3.14, "max": 3.14, "step": 0.01,
             "default": 0.0, "label": "Phase Offset",
         },
         "dc_zero": {
+            "group": "Fourier Parameters",
             "type": "bool", "default": False, "label": "Zero DC",
         },
         "animate_magnitude": {
+            "group": "Animation",
             "type": "bool", "default": True, "label": "Animate Magnitude",
             "visible_when": {"mode": ["Rotating Dot"]},
         },
         "animate_orientation": {
+            "group": "Animation",
             "type": "bool", "default": True, "label": "Animate Orientation",
             "visible_when": {"mode": ["Rotating Dot"]},
         },
