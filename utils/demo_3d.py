@@ -387,7 +387,12 @@ def make_lookat_Rt(eye, target, up=None):
 
 def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 40),
                  flip_y=True):
-    """Render meshes to a BGR uint8 image using painter's algorithm.
+    """Render meshes to a BGR uint8 image.
+
+    Polygons use painter's algorithm (far-to-near) for high-quality
+    anti-aliased fills and outlines via OpenCV.  A z-buffer is populated
+    alongside so that wireframe lines (ground grid, axes, frustums) are
+    correctly occluded by — or drawn in front of — solid geometry.
 
     Args:
         meshes: list of mesh dicts
@@ -408,26 +413,26 @@ def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 
 
     M = K @ Rt
     R = Rt[:, :3]
-    cam_pos = -R.T @ Rt[:, 3]  # camera position in world coordinates
+    t_vec = Rt[:, 3]
+    cam_pos = -R.T @ t_vec
+    fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
 
     img = np.full((img_h, img_w, 3), bg_color, dtype=np.uint8)
+    z_buf = np.full((img_h, img_w), np.inf, dtype=np.float64)
 
-    # Collect all renderable faces with depth and color
-    face_list = []  # (mean_depth, projected_pts, color, is_line)
+    # Separate polygons and lines
+    poly_list = []  # (mean_depth, pts_2d, shaded_color, normal_cam, d_plane)
+    line_list = []  # (mean_depth, pts_2d, color, z1, z2)
 
     for mesh in meshes:
         verts = mesh["vertices"]
         base_color = np.array(mesh["color"], dtype=np.float64)
 
-        # Project all vertices: homogeneous world coords (N, 4)
         N = len(verts)
         verts_h = np.hstack([verts, np.ones((N, 1))])
-
-        # Project to image: (3, N)
         projected = M @ verts_h.T  # (3, N)
-        depths = projected[2]  # (N,)
+        depths = projected[2]
 
-        # Perspective divide (avoid division by zero)
         valid_mask = depths > 0.01
         uv = np.zeros((2, N))
         uv[:, valid_mask] = projected[:2, valid_mask] / depths[valid_mask]
@@ -436,19 +441,17 @@ def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 
             face_idx = list(face_idx)
             n_verts = len(face_idx)
 
-            # Check if all vertices are in front of camera
             face_depths = depths[face_idx]
             if np.any(face_depths <= 0.01):
                 continue
 
             mean_depth = np.mean(face_depths)
-            pts_2d = uv[:, face_idx].T  # (n_verts, 2)
+            pts_2d = uv[:, face_idx].T.astype(np.int32)
 
             if n_verts == 2:
-                # Line segment
-                face_list.append((mean_depth, pts_2d.astype(np.int32), base_color, True))
+                line_list.append((mean_depth, pts_2d, base_color,
+                                  float(face_depths[0]), float(face_depths[1])))
             else:
-                # Polygon face - compute normal for shading and back-face culling
                 v0 = verts[face_idx[0]]
                 v1 = verts[face_idx[1]]
                 v2 = verts[face_idx[2]]
@@ -458,38 +461,127 @@ def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 
                     continue
                 normal_world = normal_world / norm_len
 
-                # Perspective-correct back-face culling
                 face_center = np.mean(verts[face_idx], axis=0)
                 if np.dot(normal_world, face_center - cam_pos) > 0:
                     continue
 
-                # Lambertian shading
                 intensity = np.clip(np.dot(normal_world, light_dir), 0.0, 1.0)
-                intensity = 0.35 + 0.65 * intensity  # ambient + diffuse
+                intensity = 0.35 + 0.65 * intensity
                 shaded = np.clip(base_color * intensity, 0, 255).astype(np.uint8)
 
-                face_list.append((mean_depth, pts_2d.astype(np.int32), shaded, False))
+                n_cam = R @ normal_world
+                v0_cam = R @ v0 + t_vec
+                d_plane = float(np.dot(n_cam, v0_cam))
 
-    # Sort by depth: far to near (painter's algorithm)
-    face_list.sort(key=lambda f: -f[0])
+                poly_list.append((mean_depth, pts_2d, shaded, n_cam, d_plane))
 
-    # Draw
-    for _, pts, color, is_line in face_list:
-        color_tuple = tuple(int(c) for c in color)
-        if is_line:
-            if len(pts) >= 2:
-                cv2.line(img, tuple(pts[0]), tuple(pts[1]), color_tuple, 1, cv2.LINE_AA)
-        else:
-            # Filled polygon
-            cv2.fillPoly(img, [pts], color_tuple)
-            # Wireframe outline (slightly darker)
-            outline_color = tuple(max(0, int(c * 0.5)) for c in color)
-            cv2.polylines(img, [pts], True, outline_color, 1, cv2.LINE_AA)
+    # --- Phase 1: draw polygons (painter's far-to-near) and populate z-buffer ---
+    poly_list.sort(key=lambda f: -f[0])
+    for _, pts, color, n_cam, d_plane in poly_list:
+        fill_color = tuple(int(v) for v in color)
+        outline_color = tuple(max(0, int(v * 0.5)) for v in color)
+        cv2.fillPoly(img, [pts], fill_color)
+        cv2.polylines(img, [pts], True, outline_color, 1, cv2.LINE_AA)
+        _zbuf_update_poly(z_buf, pts, n_cam, d_plane, fx, fy, cx, cy,
+                          img_w, img_h)
+
+    # --- Phase 2: draw lines, z-tested against polygon depths ---
+    line_list.sort(key=lambda f: -f[0])
+    for _, pts, color, z1, z2 in line_list:
+        _zbuf_draw_line(img, z_buf, pts, z1, z2, color, img_w, img_h)
 
     if flip_y:
         img = cv2.flip(img, 0)
 
     return img
+
+
+def _zbuf_update_poly(z_buf, pts, n_cam, d_plane, fx, fy, cx, cy,
+                      img_w, img_h):
+    """Populate z-buffer for a polygon using its plane equation (no drawing)."""
+    x0 = max(0, int(pts[:, 0].min()))
+    x1 = min(img_w - 1, int(pts[:, 0].max()))
+    y0 = max(0, int(pts[:, 1].min()))
+    y1 = min(img_h - 1, int(pts[:, 1].max()))
+    if x0 > x1 or y0 > y1:
+        return
+
+    h, w = y1 - y0 + 1, x1 - x0 + 1
+    pts_s = pts.copy()
+    pts_s[:, 0] -= x0
+    pts_s[:, 1] -= y0
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.fillPoly(mask, [pts_s], 255)
+
+    ys_l, xs_l = np.where(mask > 0)
+    if len(ys_l) == 0:
+        return
+
+    xs = (xs_l + x0).astype(np.float64)
+    ys = (ys_l + y0).astype(np.float64)
+    a, b, c = float(n_cam[0]), float(n_cam[1]), float(n_cam[2])
+    denom = a * (xs - cx) / fx + b * (ys - cy) / fy + c
+    ok = np.abs(denom) > 1e-12
+    z = np.full(len(xs), np.inf)
+    z[ok] = d_plane / denom[ok]
+    z[z <= 0] = np.inf
+
+    xi = xs_l + x0
+    yi = ys_l + y0
+    closer = z < z_buf[yi, xi]
+    if np.any(closer):
+        z_buf[yi[closer], xi[closer]] = z[closer]
+
+
+def _zbuf_draw_line(img, z_buf, pts, z1, z2, color, img_w, img_h):
+    """Rasterize a line segment through the z-buffer with AA blending."""
+    p1 = pts[0].astype(np.float64)
+    p2 = pts[1].astype(np.float64)
+    color_tuple = tuple(int(v) for v in color)
+
+    x0 = max(0, int(min(p1[0], p2[0])) - 1)
+    x1 = min(img_w - 1, int(max(p1[0], p2[0])) + 1)
+    y0 = max(0, int(min(p1[1], p2[1])) - 1)
+    y1 = min(img_h - 1, int(max(p1[1], p2[1])) + 1)
+    if x0 > x1 or y0 > y1:
+        return
+
+    h, w = y1 - y0 + 1, x1 - x0 + 1
+    mask = np.zeros((h, w), dtype=np.uint8)
+    p1_l = (int(p1[0]) - x0, int(p1[1]) - y0)
+    p2_l = (int(p2[0]) - x0, int(p2[1]) - y0)
+    cv2.line(mask, p1_l, p2_l, 255, 1, cv2.LINE_AA)
+
+    ys_l, xs_l = np.where(mask > 0)
+    if len(ys_l) == 0:
+        return
+
+    xs = xs_l + x0
+    ys = ys_l + y0
+
+    line_vec = p2 - p1
+    line_len_sq = np.dot(line_vec, line_vec)
+    if line_len_sq < 0.5:
+        return
+    pixel_xy = np.column_stack([xs, ys]).astype(np.float64)
+    t = np.clip(np.dot(pixel_xy - p1, line_vec) / line_len_sq, 0.0, 1.0)
+
+    # Perspective-correct depth: 1/z interpolates linearly in screen space
+    inv_z1 = 1.0 / max(z1, 1e-10)
+    inv_z2 = 1.0 / max(z2, 1e-10)
+    z_at = 1.0 / np.maximum((1.0 - t) * inv_z1 + t * inv_z2, 1e-10)
+
+    closer = z_at < z_buf[ys, xs]
+    if not np.any(closer):
+        return
+
+    ys_c, xs_c = ys[closer], xs[closer]
+    alpha = mask[ys_l[closer], xs_l[closer]].astype(np.float64) / 255.0
+    new_c = np.array(color_tuple, dtype=np.float64)
+    old_c = img[ys_c, xs_c].astype(np.float64)
+    blended = old_c * (1.0 - alpha[:, None]) + new_c * alpha[:, None]
+    img[ys_c, xs_c] = np.clip(blended, 0, 255).astype(np.uint8)
 
 
 # =============================================================================

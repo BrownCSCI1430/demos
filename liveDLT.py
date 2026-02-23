@@ -176,11 +176,12 @@ SCENE_IMG2 = render_scene(_SCENE, K_SHARED, _Rt2, IMG_W, IMG_H, flip_y=False)
 def normalize_2d(pts):
     """Hartley normalization for 2D points.
 
-    Translates centroid to origin, scales so std = 1.
+    Translates centroid to origin, scales so mean distance to origin = sqrt(2).
     Returns (pts_norm (N,2), T (3,3)).
     """
     c = pts.mean(axis=0)
-    s = 1.0 / (np.std(pts - c) + 1e-10)
+    mean_dist = np.mean(np.linalg.norm(pts - c, axis=1)) + 1e-10
+    s = np.sqrt(2.0) / mean_dist
     T = np.array([[s, 0, -s * c[0]],
                    [0, s, -s * c[1]],
                    [0, 0, 1.0]])

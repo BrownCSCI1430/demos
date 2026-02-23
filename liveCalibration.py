@@ -72,8 +72,8 @@ GUIDE_CALIBRATION = [
              "(\u03c3\u2081\u2082) measures fit quality \u2014 it should be near zero."},
     {"title": "Hartley normalization",
      "body": "Toggle Hartley to see the condition number improve dramatically. "
-             "Hartley normalization translates points to zero mean and scales to "
-             "unit standard deviation before building A. This makes the system "
+             "Hartley normalization translates points to zero mean and scales so "
+             "the mean distance from the origin is sqrt(d) before building A. This makes the system "
              "numerically stable without changing the geometric solution."},
     {"title": "Coordinate distortion",
      "body": "Use the Origin Shift and World Scale sliders to simulate distant "
@@ -267,7 +267,8 @@ class OvCam:
 def _normalize_2d(pts):
     """Hartley normalization for 2D. Returns (pts_norm, T 3x3)."""
     c = pts.mean(axis=0)
-    s = 1.0 / (np.std(pts - c) + 1e-10)
+    mean_dist = np.mean(np.linalg.norm(pts - c, axis=1)) + 1e-10
+    s = np.sqrt(2.0) / mean_dist
     T = np.array([[s, 0, -s*c[0]], [0, s, -s*c[1]], [0, 0, 1.0]])
     pts_h = np.column_stack([pts, np.ones(len(pts))])
     return (T @ pts_h.T).T[:, :2], T
@@ -276,7 +277,8 @@ def _normalize_2d(pts):
 def _normalize_3d(pts):
     """Hartley normalization for 3D. Returns (pts_norm, T 4x4)."""
     c = pts.mean(axis=0)
-    s = 1.0 / (np.std(pts - c) + 1e-10)
+    mean_dist = np.mean(np.linalg.norm(pts - c, axis=1)) + 1e-10
+    s = np.sqrt(3.0) / mean_dist
     T = np.array([
         [s, 0, 0, -s*c[0]],
         [0, s, 0, -s*c[1]],
