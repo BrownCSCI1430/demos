@@ -6,6 +6,8 @@ HOG-based person detection using OpenCV's built-in descriptor.
 import cv2
 import numpy as np
 
+from liveHOGPersonDetector import GUIDE_HOG
+
 # Initialize HOG detector once at module level
 _hog = cv2.HOGDescriptor()
 _hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
@@ -42,6 +44,7 @@ WEB_CONFIG = {
         },
     },
     "layout": {"rows": [["detection"]]},
+    "guide": GUIDE_HOG,
 }
 
 

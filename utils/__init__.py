@@ -18,7 +18,10 @@ from .demo_ui import (
     setup_viewport,
     make_state_updater,
     make_reset_callback,
+    make_reset_all_callback,
     add_global_controls,
+    add_guide_button,
+    create_guide_window,
 )
 
 from .demo_kernels import (

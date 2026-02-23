@@ -27,6 +27,35 @@ DEFAULTS = {
     "ui_scale": 1.5,
 }
 
+GUIDE_FILTER = [
+    {"title": "Convolution basics",
+     "body": "A kernel (small matrix) slides over the image. At each position, "
+             "multiply overlapping values and sum them to produce one output pixel. "
+             "Kernel size and values determine the effect: blur, sharpen, edge detect."},
+    {"title": "Kernel presets",
+     "body": "Box Blur: averages all neighbors equally.\n"
+             "Gaussian: weights by distance from center (controlled by sigma).\n"
+             "Sharpen: enhances edges by subtracting a blurred version.\n"
+             "Sobel X/Y: detects directional gradients (horizontal/vertical edges).\n"
+             "Laplacian: detects edges in all directions (second derivative)."},
+    {"title": "Interactive kernel editing",
+     "body": "Left-click a cell: +0.1 (Shift+click: +1.0)\n"
+             "Right-click: -0.1 (Shift+right-click: -1.0)\n"
+             "Ctrl+click: set cell to zero.\n"
+             "Editing any cell switches to Custom mode.\n"
+             "Color map: bright = large value, dark = small value."},
+    {"title": "Normalization",
+     "body": "Divides every kernel value by the kernel sum to preserve overall "
+             "brightness. Edge-detecting kernels (whose values sum to zero) skip "
+             "normalization automatically. Toggle the checkbox to see the effect "
+             "on brightness."},
+    {"title": "Kernel size and sigma",
+     "body": "Larger kernels incorporate more context but lose fine detail. "
+             "For Gaussian: small sigma = sharp peak (weak blur), "
+             "large sigma = wide bell curve (strong blur). "
+             "Kernel size must be odd so the center pixel is well-defined."},
+]
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Available kernel presets (add "Custom" for interactive editor)
@@ -353,7 +382,17 @@ def main():
                             format=dpg.mvFormat_Float_rgba, tag="filtered_texture")
 
     with dpg.window(label="Interactive Filter Demo", tag="main_window"):
-        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"))
+        def _extra_reset():
+            for tag, key in [("kernel_combo", "kernel_type"),
+                             ("size_slider", "kernel_size"),
+                             ("sigma_slider", "gaussian_sigma")]:
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, DEFAULTS[key])
+            update_kernel_type(None, DEFAULTS["kernel_type"])
+
+        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"),
+                            reset_extra=_extra_reset,
+                            guide=GUIDE_FILTER, guide_title="Image Filtering")
 
         dpg.add_separator()
 

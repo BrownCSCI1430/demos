@@ -15,7 +15,7 @@ from skimage import img_as_float
 from skimage.color import rgb2gray
 
 from utils.demo_utils import init_camera, load_fallback_image, convert_cv_to_dpg_float, crop_to_square, get_frame
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback
+from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback, add_global_controls
 from utils.demo_kernels import create_kernel, pad_kernel_to_image_size, create_gaussian_kernel_fft, visualize_kernel
 from utils.demo_fft import visualize_fft_amplitude, process_convolution, process_deconvolution
 
@@ -31,6 +31,34 @@ DEFAULTS = {
 }
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+GUIDE_CONV_THEOREM = [
+    {"title": "The convolution theorem",
+     "body": "Convolution in the spatial domain equals element-wise multiplication "
+             "in the frequency domain:\n"
+             "  FFT(f \u2217 g) = FFT(f) \u00b7 FFT(g)\n"
+             "Both sides are shown simultaneously so you can verify they match."},
+    {"title": "Kernel frequency response",
+     "body": "Gaussian = low-pass filter (attenuates high frequencies).\n"
+             "Sharpen = amplifies high frequencies.\n"
+             "Edge kernels = zero DC response (output sums to zero).\n"
+             "Watch the kernel's FFT to see what frequencies it passes or blocks."},
+    {"title": "Convolution mode",
+     "body": "Top row: spatial convolution via cv2.filter2D.\n"
+             "Bottom row: frequency multiplication (FFT \u2192 multiply \u2192 inverse FFT).\n"
+             "The results should match, demonstrating the convolution theorem."},
+    {"title": "Deconvolution",
+     "body": "Switch to Deconvolution mode to invert a blur by dividing in the "
+             "frequency domain. But dividing by small values (where the kernel's "
+             "FFT is near zero) amplifies noise dramatically."},
+    {"title": "Regularization",
+     "body": "Stabilizes deconvolution using Wiener-style filtering:\n"
+             "  H*/(|H|\u00b2 + \u03b5)  instead of  1/H\n"
+             "The slider controls \u03b5:\n"
+             "  Too small \u2192 noise explosion\n"
+             "  Too large \u2192 image stays blurry\n"
+             "Find the sweet spot that recovers detail without amplifying noise."},
+]
 
 # Available kernels
 KERNELS = ["Box", "Gaussian", "Sharpen", "Edge Horizontal", "Edge Vertical", "Random"]
@@ -218,39 +246,39 @@ def main():
 
     with dpg.window(label="Convolution Theorem Demo", tag="main_window"):
         # Global controls row
-        with dpg.group(horizontal=True):
-            dpg.add_combo(
-                label="Mode",
-                items=["Convolution", "Deconvolution"],
-                default_value=state.mode,
-                callback=update_mode,
-                tag="mode_combo",
-                width=120
-            )
-            dpg.add_combo(
-                label="UI Scale",
-                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
-                default_value=str(DEFAULTS["ui_scale"]),
-                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
-                width=80
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_checkbox(label="Pause", default_value=state.pause,
-                           callback=make_state_updater(state, "pause"))
-            dpg.add_checkbox(
-                label="Cat Mode",
-                default_value=state.cat_mode,
-                callback=make_state_updater(state, "cat_mode"),
-                tag="cat_mode_checkbox",
-                enabled=state.use_camera
-            )
-            if not state.use_camera:
-                dpg.add_text("(no webcam)", color=(255, 100, 100))
+        def _extra_reset():
+            if dpg.does_item_exist("kernel_combo"):
+                dpg.set_value("kernel_combo", DEFAULTS["kernel_type"])
+            if dpg.does_item_exist("mode_combo"):
+                dpg.set_value("mode_combo", DEFAULTS["mode"])
+                update_mode(None, DEFAULTS["mode"])
+            state.pause = False
+            if dpg.does_item_exist("pause_checkbox"):
+                dpg.set_value("pause_checkbox", False)
+
+        add_global_controls(
+            DEFAULTS, state,
+            cat_mode_callback=make_state_updater(state, "cat_mode"),
+            pause_callback=make_state_updater(state, "pause"),
+            reset_extra=_extra_reset,
+            guide=GUIDE_CONV_THEOREM, guide_title="Convolution Theorem",
+        )
 
         dpg.add_separator()
 
         # Parameters using child_window containers
         with dpg.group(horizontal=True):
+            # Mode selector
+            with dpg.child_window(width=160, height=160, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Mode", default_open=True):
+                    dpg.add_combo(
+                        label="Mode", items=["Convolution", "Deconvolution"],
+                        default_value=state.mode, callback=update_mode,
+                        tag="mode_combo", width=120,
+                    )
+
+            dpg.add_spacer(width=10)
+
             # Column 1: Kernel
             with dpg.child_window(width=420, height=160, border=False, no_scrollbar=True):
                 with dpg.collapsing_header(label="Kernel", default_open=True):
@@ -258,7 +286,7 @@ def main():
                                    borders_innerV=False, borders_outerV=False,
                                    borders_innerH=False, borders_outerH=False,
                                    policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
+                        dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
 
                         with dpg.table_row():
@@ -291,7 +319,7 @@ def main():
                                    borders_innerV=False, borders_outerV=False,
                                    borders_innerH=False, borders_outerH=False,
                                    policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=210)
+                        dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
 
                         with dpg.table_row():

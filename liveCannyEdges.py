@@ -22,6 +22,27 @@ DEFAULTS = {
     "ui_scale": 1.5,
 }
 
+GUIDE_CANNY = [
+    {"title": "Gaussian blur preprocessing",
+     "body": "Smooth the image to reduce noise before detecting edges. "
+             "Higher sigma = stronger smoothing = less noise but may blur "
+             "fine edges. The blur kernel size is fixed at 11x11."},
+    {"title": "Gradient computation",
+     "body": "Sobel filters in x and y directions compute the gradient magnitude "
+             "and direction at each pixel. Strong gradients indicate potential edges."},
+    {"title": "Non-maximum suppression",
+     "body": "Thins gradient ridges to 1-pixel-wide edges by keeping only "
+             "local maxima along the gradient direction. This prevents thick, "
+             "blurry edge responses."},
+    {"title": "Hysteresis thresholding",
+     "body": "Two thresholds classify edge pixels:\n"
+             "  - Below Low: discard (not an edge)\n"
+             "  - Above High: strong edge (always kept)\n"
+             "  - Between: kept only if connected to a strong edge\n"
+             "Widen the gap for more edges; narrow it for fewer. "
+             "Try: low=10, high=70 (default) vs low=50, high=200 (strict)."},
+]
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -139,7 +160,16 @@ def main():
     # Create main window
     with dpg.window(label="Canny Edge Detection Demo", tag="main_window"):
         # Global controls
-        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"))
+        def _extra_reset():
+            for tag, key in [("blur_slider", "blur_sigma"),
+                             ("canny_low_slider", "canny_thresh_low"),
+                             ("canny_high_slider", "canny_thresh_high")]:
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, DEFAULTS[key])
+
+        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"),
+                            reset_extra=_extra_reset,
+                            guide=GUIDE_CANNY, guide_title="Canny Edge Detection")
 
         dpg.add_separator()
 
@@ -149,10 +179,10 @@ def main():
                            borders_innerV=False, borders_outerV=False,
                            borders_innerH=False, borders_outerH=False,
                            policy=dpg.mvTable_SizingFixedFit):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                dpg.add_table_column()  # label (auto-fit)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                dpg.add_table_column()  # label (auto-fit)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 

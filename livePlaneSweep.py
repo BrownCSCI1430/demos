@@ -35,6 +35,7 @@ from utils.demo_utils import convert_cv_to_dpg
 from utils.demo_ui import (
     load_fonts, setup_viewport, make_state_updater, make_reset_callback,
     create_parameter_table, add_parameter_row,
+    add_global_controls,
 )
 
 
@@ -43,9 +44,31 @@ from utils.demo_ui import (
 # =============================================================================
 
 DEFAULTS = {
-    "lam": 3.0,       # current depth hypothesis λ (slider)
+    "lam": 3.0,       # current depth hypothesis \u03bb (slider)
     "ui_scale": 1.5,
 }
+
+GUIDE_PLANE_SWEEP = [
+    {"title": "Plane sweep stereo",
+     "body": "Evaluate depth hypotheses by warping one image to the other at "
+             "different depths \u03bb. When the warp aligns the views perfectly, "
+             "\u03bb matches the true scene depth. Slide the depth slider to find "
+             "the peak alignment."},
+    {"title": "H(\u03bb) = \u03bbB + ae\u2083\u1d40",
+     "body": "B = K_other \u00b7 R_rel \u00b7 inv(K_ref)  is the homography at infinity "
+             "(handles rotation + intrinsics only, no depth).\n"
+             "a = K_other \u00b7 C_ref + t_other  encodes the epipolar baseline. "
+             "Sweeping \u03bb scales the rotation component while the baseline stays fixed."},
+    {"title": "NCC similarity",
+     "body": "Normalized Cross-Correlation measures how well two image patches "
+             "align: -1 (anti-correlated) to +1 (perfect match). "
+             "The NCC-vs-\u03bb plot peaks at the true depth (\u03bb = 3.0)."},
+    {"title": "Connection to DLT",
+     "body": "H(\u03bb) uses the same camera matrices that DLT estimates. "
+             "B comes from intrinsics and relative rotation; a encodes the "
+             "camera separation. Accurate calibration is critical for stereo \u2014 "
+             "errors in M propagate directly into depth estimates."},
+]
 
 IMG_W, IMG_H = 400, 400
 OVERVIEW_SIZE = 400
@@ -250,16 +273,6 @@ state = State()
 
 
 # =============================================================================
-# Callbacks
-# =============================================================================
-
-def reset_all():
-    state.lam = DEFAULTS["lam"]
-    if dpg.does_item_exist("lam_slider"):
-        dpg.set_value("lam_slider", DEFAULTS["lam"])
-
-
-# =============================================================================
 # Main
 # =============================================================================
 
@@ -284,28 +297,22 @@ def main():
     with dpg.window(label="Plane Sweep Stereo Demo", tag="main_window"):
 
         # ── Top controls ──────────────────────────────────────────────────────
-        with dpg.group(horizontal=True):
-            dpg.add_combo(
-                label="UI Scale",
-                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
-                default_value=str(DEFAULTS["ui_scale"]), width=80,
-                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_button(label="Reset All", callback=lambda: reset_all())
-            dpg.add_spacer(width=20)
-            dpg.add_text(
-                f"  True depth: λ={LAM_TRUE:.1f}  |  "
-                f"Scene: checkerboard plane  |  "
-                f"H(λ) = λB + outer(a, e₃ᵀ)",
-                color=(200, 200, 120),
-            )
+        add_global_controls(
+            DEFAULTS, state,
+            guide=GUIDE_PLANE_SWEEP, guide_title="Plane Sweep Stereo",
+        )
+        dpg.add_text(
+            f"  True depth: λ={LAM_TRUE:.1f}  |  "
+            f"Scene: checkerboard plane  |  "
+            f"H(λ) = λB + outer(a, e₃ᵀ)",
+            color=(200, 200, 120),
+        )
 
         dpg.add_separator()
 
         # ── λ slider ─────────────────────────────────────────────────────────
         with create_parameter_table():
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=160)
+            dpg.add_table_column()  # label (auto-fit)
             dpg.add_table_column(width_fixed=True, init_width_or_weight=300)
             dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 

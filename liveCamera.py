@@ -22,6 +22,7 @@ from utils.demo_ui import (
     load_fonts, bind_mono_font,
     setup_viewport, make_state_updater, make_reset_callback,
     create_parameter_table, add_parameter_row,
+    add_global_controls,
 )
 
 
@@ -48,6 +49,32 @@ DEFAULTS = {
 }
 
 OVERVIEW_SIZE = 400
+
+GUIDE_CAMERA = [
+    {"title": "The projection pipeline",
+     "body": "A 3D world point is transformed to pixel coordinates through:\n"
+             "  World \u2192 [R|t] \u2192 Camera coords \u2192 K \u2192 Pixel\n"
+             "M = K[R|t] is the full 3\u00d74 projection matrix. "
+             "Adjust sliders to see each component's effect on the rendered scene."},
+    {"title": "Intrinsic matrix K",
+     "body": "Focal length controls zoom (field of view).\n"
+             "Principal point (cx, cy) shifts where the optical axis hits the sensor.\n"
+             "Skew (usually 0) shears the pixel grid.\n"
+             "K converts 3D camera coordinates into 2D pixel coordinates."},
+    {"title": "Extrinsic matrix [R|t]",
+     "body": "R (3\u00d73 rotation): camera orientation via Euler angles (rx, ry, rz).\n"
+             "t (3\u00d71 translation): camera position displacement.\n"
+             "Together they place the camera in the world coordinate system."},
+    {"title": "Reference frames",
+     "body": "World frame: sliders control camera pose relative to the world.\n"
+             "Camera frame: sliders control where the world appears relative to "
+             "the camera. Toggle between them to see the dual interpretation. "
+             "The rendered images are always identical \u2014 only the slider meanings change."},
+    {"title": "The 3\u00d74 matrix M",
+     "body": "M = K[R|t] combines intrinsic and extrinsic parameters. "
+             "Toggle 'Show matrices algebraically' to see how the symbolic "
+             "parameters compose into M. Each slider change updates M in real time."},
+]
 
 
 # =============================================================================
@@ -174,14 +201,17 @@ def _sync_sliders_to_state():
             dpg.set_value(tag, val)
 
 
-def reset_all():
-    """Reset all parameters to defaults."""
-    for attr, val in DEFAULTS.items():
-        if hasattr(state, attr):
-            setattr(state, attr, val)
+def _camera_extra_reset():
+    """Extra reset logic beyond DEFAULTS iteration."""
     state.camera_frame = False
+    state.show_symbolic = False
     if dpg.does_item_exist("ref_frame_combo"):
         dpg.set_value("ref_frame_combo", "World")
+    if dpg.does_item_exist("symbolic_toggle"):
+        dpg.set_value("symbolic_toggle", False)
+    # focal_slider doesn't match focal_length_slider convention
+    if dpg.does_item_exist("focal_slider"):
+        dpg.set_value("focal_slider", DEFAULTS["focal_length"])
     _sync_sliders_to_state()
 
 
@@ -282,43 +312,42 @@ def main():
                             format=dpg.mvFormat_Float_rgba, tag="overview_texture")
 
     with dpg.window(label="3D Camera Demo", tag="main_window"):
-        # --- Top controls ---
-        with dpg.group(horizontal=True):
-            dpg.add_combo(
-                label="UI Scale",
-                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
-                default_value=str(DEFAULTS["ui_scale"]),
-                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
-                width=80,
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_text("Reference Frame:")
-            dpg.add_combo(
-                items=["World", "Camera"],
-                default_value="World",
-                callback=on_reference_frame_change,
-                tag="ref_frame_combo",
-                width=100,
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_button(label="Reset All", callback=lambda: reset_all())
-            dpg.add_spacer(width=20)
-            dpg.add_checkbox(
-                label="Show matrices algebraically",
-                default_value=False,
-                callback=_on_symbolic_toggle,
-                tag="symbolic_toggle",
-            )
+        add_global_controls(
+            DEFAULTS, state,
+            reset_extra=_camera_extra_reset,
+            guide=GUIDE_CAMERA, guide_title="3D Camera",
+        )
 
         dpg.add_separator()
 
-        # --- Parameter controls in 3 columns ---
+        # --- Parameter controls in columns ---
         with dpg.group(horizontal=True):
+            # View Options
+            with dpg.child_window(width=220, height=280, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="View Options", default_open=True):
+                    dpg.add_text("Reference Frame:")
+                    dpg.add_combo(
+                        items=["World", "Camera"],
+                        default_value="World",
+                        callback=on_reference_frame_change,
+                        tag="ref_frame_combo",
+                        width=100,
+                    )
+                    dpg.add_spacer(height=5)
+                    dpg.add_checkbox(
+                        label="Show matrices\nalgebraically",
+                        default_value=False,
+                        callback=_on_symbolic_toggle,
+                        tag="symbolic_toggle",
+                    )
+
+            dpg.add_spacer(width=10)
+
             # Column 1: Pixel-space projection
             with dpg.child_window(width=360, height=280, border=False, no_scrollbar=True):
                 with dpg.collapsing_header(label="Projection to Pixels", default_open=True):
                     with create_parameter_table():
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=150)
+                        dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
 
@@ -354,7 +383,7 @@ def main():
             with dpg.child_window(width=360, height=310, border=False, no_scrollbar=True):
                 with dpg.collapsing_header(label="Physical Camera", default_open=True):
                     with create_parameter_table():
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=150)
+                        dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
 
@@ -384,7 +413,7 @@ def main():
             with dpg.child_window(width=360, height=280, border=False, no_scrollbar=True):
                 with dpg.collapsing_header(label="Extrinsic [R|t]", default_open=True):
                     with create_parameter_table():
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=150)
+                        dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
 

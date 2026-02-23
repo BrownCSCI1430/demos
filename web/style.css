@@ -346,3 +346,113 @@ header h1 {
     background: #2a2a30;
     color: #707080;
 }
+
+/* ── Title row (with optional guide button) ───────────────────────────── */
+
+.title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.guide-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid #4a4a6a;
+    background: #2a3a5a;
+    color: #a0c0e0;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+.guide-btn:hover { background: #3a4a6a; }
+
+/* ── Guide modal overlay ──────────────────────────────────────────────── */
+
+.guide-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.guide-modal {
+    background: #1a1a24;
+    border: 1px solid #3a3a4a;
+    border-radius: 10px;
+    width: 90%;
+    max-width: 640px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.guide-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid #2a2a3a;
+    flex-shrink: 0;
+}
+
+.guide-modal-header h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #c8c8e0;
+    margin: 0;
+}
+
+.guide-close-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: none;
+    color: #808090;
+    font-size: 20px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+.guide-close-btn:hover {
+    background: #2a2a3a;
+    color: #d8d8d8;
+}
+
+.guide-modal-body {
+    padding: 16px 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.guide-step {
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #22222e;
+}
+
+.guide-step:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.guide-step h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #a0b8d0;
+    margin: 0 0 6px 0;
+}
+
+.guide-step p {
+    font-size: 13px;
+    color: #b0b0c0;
+    line-height: 1.6;
+    margin: 0;
+    white-space: pre-line;
+}

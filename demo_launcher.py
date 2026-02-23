@@ -7,7 +7,7 @@ import os
 import sys
 import subprocess
 import dearpygui.dearpygui as dpg
-from utils.demo_ui import load_fonts
+from utils.demo_ui import load_fonts, _ui_scale_to_gfs
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -67,6 +67,11 @@ SECTIONS = [
             "description": "Synthetic DLT calibration demo. Drag the noise slider to add pixel noise to 2D\u20133D correspondences and watch the reprojection error and condition number change. Toggle Hartley normalization to see its effect on numerical stability.",
             "default_resolution": "480x480",
         },
+        "DLT Explorer": {
+            "file": "liveDLT.py",
+            "description": "Explore DLT estimation for homographies and fundamental matrices. See how SVD solves Ah=0, decompose H(\u03bb) = \u03bbB + ae\u2083\u1d40 interactively, and visualize the 8-point algorithm with rank enforcement and epipole extraction.",
+            "default_resolution": "420x380",
+        },
         "Plane Sweep Stereo": {
             "file": "livePlaneSweep.py",
             "description": "Depth-dependent homography H(\u03bb) demo. Sweep the depth slider to warp one camera view into the other. NCC peaks when \u03bb matches the true scene depth, showing the plane sweep stereo principle (HW3 Task 2).",
@@ -108,7 +113,7 @@ state = LauncherState()
 UI_SCALES = ["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"]
 
 def update_ui_scale(sender, value):
-    dpg.set_global_font_scale(float(value))
+    dpg.set_global_font_scale(_ui_scale_to_gfs(value))
 
 def select_demo(sender, app_data, user_data):
     """Handle demo selection"""
@@ -265,7 +270,7 @@ def main():
     dpg.show_viewport()
     dpg.set_primary_window("main_window", True)
 
-    dpg.set_global_font_scale(DEFAULT_UI_SCALE)
+    dpg.set_global_font_scale(_ui_scale_to_gfs(DEFAULT_UI_SCALE))
 
     while dpg.is_dearpygui_running():
         dpg.render_dearpygui_frame()

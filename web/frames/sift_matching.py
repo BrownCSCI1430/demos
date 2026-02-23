@@ -7,7 +7,7 @@ import os
 import cv2
 import numpy as np
 
-from liveSIFTMatching import compute_sift_matches
+from liveSIFTMatching import compute_sift_matches, GUIDE_SIFT
 
 # ── Module-level setup ──
 _detector = cv2.SIFT_create()
@@ -64,6 +64,7 @@ WEB_CONFIG = {
         },
     },
     "layout": {"rows": [["matches"]]},
+    "guide": GUIDE_SIFT,
 }
 
 

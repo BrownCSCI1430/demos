@@ -19,6 +19,24 @@ DEFAULTS = {
     "ui_scale": 1.5,
 }
 
+GUIDE_STARTER = [
+    {"title": "What is this demo?",
+     "body": "A minimal template for experimenting with image processing. "
+             "Left panel = raw webcam feed, right panel = your process_frame() output. "
+             "Edit the code while it runs to see changes in real time."},
+    {"title": "Edit process_frame()",
+     "body": "Open liveStarter.py and find the process_frame() function. "
+             "Replace 'output = img.copy()' with any OpenCV operation:\n"
+             "  - cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  (grayscale)\n"
+             "  - cv2.GaussianBlur(img, (15,15), 0)      (blur)\n"
+             "  - cv2.Canny(gray, 50, 150)                (edges)\n"
+             "  - 255 - img                               (invert)\n"
+             "  - img[:, :, 2]                            (red channel only)"},
+    {"title": "Experiment",
+     "body": "Save and re-run to see your changes. Chain multiple operations "
+             "to build a pipeline. Toggle Cat Mode to work without a webcam."},
+]
+
 
 class State:
     cap = None
@@ -155,7 +173,8 @@ def main():
     # Create main window
     with dpg.window(label="Starter Demo", tag="main_window"):
         # Global controls
-        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"))
+        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"),
+                            guide=GUIDE_STARTER, guide_title="Starter Template")
 
         dpg.add_separator()
         dpg.add_spacer(height=5)

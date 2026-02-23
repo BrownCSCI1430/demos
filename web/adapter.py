@@ -145,10 +145,75 @@ def _set_control_value(ctrl_id, new_val):
 def _build_ui():
     container = document.getElementById("demo-container")
 
-    # Title
+    # Title row (optionally with guide "?" button)
     h2 = document.createElement("h2")
     h2.textContent = WEB_CONFIG["title"]
-    container.appendChild(h2)
+
+    _guide_steps = WEB_CONFIG.get("guide")
+    if _guide_steps:
+        title_row = document.createElement("div")
+        title_row.className = "title-row"
+        title_row.appendChild(h2)
+
+        guide_btn = document.createElement("button")
+        guide_btn.className = "guide-btn"
+        guide_btn.textContent = "?"
+        guide_btn.title = "Open guide"
+        title_row.appendChild(guide_btn)
+
+        container.appendChild(title_row)
+
+        # Build guide modal overlay (appended to body, hidden)
+        overlay = document.createElement("div")
+        overlay.className = "guide-overlay"
+        overlay.id = "guide-overlay"
+        overlay.style.display = "none"
+
+        modal = document.createElement("div")
+        modal.className = "guide-modal"
+
+        modal_hdr = document.createElement("div")
+        modal_hdr.className = "guide-modal-header"
+        modal_title = document.createElement("h3")
+        modal_title.textContent = f"{WEB_CONFIG['title']} \u2014 Guide"
+        modal_hdr.appendChild(modal_title)
+        close_btn = document.createElement("button")
+        close_btn.className = "guide-close-btn"
+        close_btn.textContent = "\u00d7"
+        modal_hdr.appendChild(close_btn)
+        modal.appendChild(modal_hdr)
+
+        modal_body = document.createElement("div")
+        modal_body.className = "guide-modal-body"
+        for step in _guide_steps:
+            step_div = document.createElement("div")
+            step_div.className = "guide-step"
+            st = document.createElement("h4")
+            st.textContent = step["title"]
+            step_div.appendChild(st)
+            if step.get("body"):
+                sp = document.createElement("p")
+                sp.textContent = step["body"]
+                step_div.appendChild(sp)
+            modal_body.appendChild(step_div)
+        modal.appendChild(modal_body)
+
+        overlay.appendChild(modal)
+        document.body.appendChild(overlay)
+
+        # Wire open/close
+        def _open_guide(e):
+            document.getElementById("guide-overlay").style.display = "flex"
+
+        def _close_guide(e):
+            document.getElementById("guide-overlay").style.display = "none"
+
+        guide_btn.addEventListener("click", create_proxy(_open_guide))
+        close_btn.addEventListener("click", create_proxy(_close_guide))
+        overlay.addEventListener("click", create_proxy(
+            lambda e: _close_guide(e) if e.target == overlay else None))
+    else:
+        container.appendChild(h2)
 
     # Description
     p = document.createElement("p")

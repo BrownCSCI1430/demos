@@ -41,6 +41,7 @@ from utils.demo_utils import convert_cv_to_dpg
 from utils.demo_ui import (
     load_fonts, bind_mono_font,
     setup_viewport,
+    add_global_controls,
 )
 
 
@@ -51,6 +52,30 @@ from utils.demo_ui import (
 IMG_W, IMG_H   = 420, 380
 OVERVIEW_SIZE  = 420
 UI_SCALE       = 1.5
+DEFAULTS = {"ui_scale": 1.5}
+
+GUIDE_TRIANGULATION = [
+    {"title": "Triangulation from two views",
+     "body": "Each 2D point defines a ray from its camera center through the "
+             "image plane. Two rays from different cameras intersect at the 3D "
+             "point. Click in image 1, then click the corresponding point in "
+             "image 2 to triangulate."},
+    {"title": "The 4\u00d74 DLT system",
+     "body": "Cross-product elimination turns x \u223c MX into AX = 0. "
+             "Each view contributes 2 equations; together they form a 4\u00d74 system. "
+             "The SVD null vector gives the 3D point in homogeneous coordinates. "
+             "Dehomogenise by dividing by the 4th component."},
+    {"title": "Epipolar constraint",
+     "body": "Click in image 1 to see the epipolar line in image 2. "
+             "The true corresponding point must lie on this line: l\u2082 = F\u00b7x\u2081. "
+             "Use the epipolar line as a guide when clicking in image 2."},
+    {"title": "Cheirality and reprojection",
+     "body": "Valid triangulation requires positive depth in both cameras "
+             "(the point must be in front of both). Green spheres pass the "
+             "cheirality check; red spheres are behind at least one camera. "
+             "Reprojection error measures how well the 3D point projects back "
+             "to the original clicks."},
+]
 
 # Two camera matrices
 K_SHARED = build_intrinsic(
@@ -299,37 +324,40 @@ def main():
     with dpg.window(label="Triangulation Demo", tag="main_window"):
 
         # ── Top bar ──────────────────────────────────────────────────────────
-        with dpg.group(horizontal=True):
-            dpg.add_combo(
-                label="UI Scale",
-                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
-                default_value=str(UI_SCALE), width=80,
-                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_button(
-                label="Clear clicks",
-                callback=lambda: (
-                    setattr(state, "click_left",  None),
-                    setattr(state, "click_right", None),
-                    setattr(state, "tri_point",   None),
-                    setattr(state, "tri_valid",   False),
-                ),
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_text(
-                "Left-click in LEFT view → epipolar line  |  "
-                "Left-click in RIGHT view → triangulate  |  "
-                "Right-click → clear",
-                color=(200, 200, 120),
-            )
+        def _clear_clicks():
+            state.click_left = None
+            state.click_right = None
+            state.tri_point = None
+            state.tri_valid = False
+
+        add_global_controls(
+            DEFAULTS, state,
+            reset_extra=_clear_clicks,
+            guide=GUIDE_TRIANGULATION, guide_title="Sparse Triangulation",
+        )
 
         dpg.add_separator()
+
         dpg.add_text("", tag="status_text", color=(255, 220, 100))
-        dpg.add_separator()
 
         # ── Main panels ───────────────────────────────────────────────────────
         with dpg.group(horizontal=True):
+            # Controls
+            with dpg.child_window(width=180, height=300, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Controls", default_open=True):
+                    dpg.add_button(
+                        label="Clear clicks", callback=_clear_clicks,
+                    )
+                    dpg.add_spacer(height=10)
+                    dpg.add_text(
+                        "Left-click in LEFT view \u2192 epipolar line\n"
+                        "Left-click in RIGHT view \u2192 triangulate\n"
+                        "Right-click \u2192 clear",
+                        color=(200, 200, 120), wrap=160,
+                    )
+
+            dpg.add_spacer(width=10)
+
             # Left camera view
             with dpg.group():
                 dpg.add_text("Camera 1 (Left)", color=(150, 255, 150))

@@ -17,6 +17,7 @@ from liveCalibration import (
     draw_projection_canvas, _depth_color,
     OvCam, _OV_K,
     state as cal_state,
+    GUIDE_CALIBRATION,
 )
 from utils.demo_3d import (
     render_scene, make_frustum_mesh, make_axis_mesh,
@@ -90,6 +91,7 @@ WEB_CONFIG = {
     },
     "mouse": ["overview"],
     "layout": {"rows": [["projection", "overview"]]},
+    "guide": GUIDE_CALIBRATION,
 }
 
 

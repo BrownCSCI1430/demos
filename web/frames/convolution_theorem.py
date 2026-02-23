@@ -6,6 +6,7 @@ Demonstrates convolution theorem: spatial convolution = frequency multiplication
 import numpy as np
 import cv2
 
+from liveConvolutionTheorem import GUIDE_CONV_THEOREM
 from utils.demo_fft import process_convolution, process_deconvolution, visualize_fft_amplitude
 from utils.demo_kernels import create_kernel, pad_kernel_to_image_size
 
@@ -112,6 +113,7 @@ WEB_CONFIG = {
             ["input_fft", "kernel_fft", "product_fft"],
         ],
     },
+    "guide": GUIDE_CONV_THEOREM,
 }
 
 

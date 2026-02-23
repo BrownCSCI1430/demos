@@ -41,14 +41,26 @@ _MONO_CANDIDATES = [
 ]
 
 
-def load_fonts(size=14):
+# Font is rasterized at the maximum UI scale (3×) so that
+# set_global_font_scale always DOWN-scales (or is 1:1).  Downscaling a
+# high-res atlas is far crisper than upscaling a low-res one.
+_BASE_FONT_SIZE = 14
+_MAX_UI_SCALE = 3.0
+_ATLAS_FONT_SIZE = int(_BASE_FONT_SIZE * _MAX_UI_SCALE + 0.5)   # 42 px
+
+
+def load_fonts(size=None):
     """Load proportional + monospace fonts with Unicode glyph support.
+
+    The font is rasterized at a large size (_ATLAS_FONT_SIZE = 42 px) so that
+    set_global_font_scale always scales *down* — giving much crisper text
+    than the old approach of upscaling a 14 px raster.
 
     Must be called after dpg.create_context() and before building any windows.
     Binds the proportional font as the global default.
 
     Args:
-        size: Font size in pixels (default 14)
+        size: Ignored (kept for call-site compatibility).
 
     Returns:
         (default_font, mono_font) — DPG font handles.
@@ -60,7 +72,7 @@ def load_fonts(size=14):
         if not os.path.exists(fp):
             continue
         with dpg.font_registry():
-            with dpg.font(fp, size) as _default_font:
+            with dpg.font(fp, _ATLAS_FONT_SIZE) as _default_font:
                 dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
                 dpg.add_font_range(0x1D00, 0x1D7F)   # Phonetic Extensions (ᵀ)
                 dpg.add_font_range(0x2000, 0x206F)   # General Punctuation (—)
@@ -71,17 +83,27 @@ def load_fonts(size=14):
                 dpg.add_font_range(0x2200, 0x22FF)   # Math Operators (√)
             for mfp in _MONO_CANDIDATES:
                 if os.path.exists(mfp):
-                    with dpg.font(mfp, size) as _mono_font:
+                    with dpg.font(mfp, _ATLAS_FONT_SIZE) as _mono_font:
                         dpg.add_font_range_hint(dpg.mvFontRangeHint_Default)
                     break
         dpg.bind_font(_default_font)
-        print(f"[fonts] Loaded: {os.path.basename(fp)}"
+        print(f"[fonts] Loaded at {_ATLAS_FONT_SIZE}px (atlas): "
+              f"{os.path.basename(fp)}"
               + (f"  mono: {os.path.basename(mfp)}" if _mono_font else ""))
         break
     else:
         print("[fonts] No Unicode font found; using DPG default")
 
     return _default_font, _mono_font
+
+
+def _ui_scale_to_gfs(ui_scale):
+    """Convert a user-facing UI scale value to a global-font-scale value.
+
+    Because the atlas is rasterized at _MAX_UI_SCALE (3×), the GFS is always
+    ≤ 1.0, meaning we only ever *downscale* — which preserves glyph quality.
+    """
+    return float(ui_scale) / _MAX_UI_SCALE
 
 
 def bind_mono_font(*tags):
@@ -112,7 +134,7 @@ def make_ui_scale_callback():
         Callback function that updates global font scale
     """
     def callback(sender, value):
-        dpg.set_global_font_scale(float(value))
+        dpg.set_global_font_scale(_ui_scale_to_gfs(value))
     return callback
 
 
@@ -149,28 +171,62 @@ def make_reset_callback(state, attr, slider_tag, default_value):
     return callback
 
 
+def make_reset_all_callback(defaults, state, extra_reset=None):
+    """Create a callback that resets all state attrs to defaults and syncs DPG widgets.
+
+    For each key in defaults:
+      1. setattr(state, key, value)
+      2. If a DPG item with tag "{key}_slider", "{key}_checkbox", or "{key}_combo"
+         exists, set its value
+
+    Args:
+        defaults: Dict of {attr_name: default_value}
+        state: State object
+        extra_reset: Optional callable for demo-specific reset logic
+                     (e.g. resetting non-DEFAULTS state, custom widget tags)
+    """
+    def callback():
+        for attr, val in defaults.items():
+            if hasattr(state, attr):
+                setattr(state, attr, val)
+            for suffix in ("_slider", "_checkbox", "_combo"):
+                tag = f"{attr}{suffix}"
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, val)
+                    break
+        if extra_reset:
+            extra_reset()
+    return callback
+
+
 # =============================================================================
 # UI Component Builders
 # =============================================================================
 
-def add_global_controls(defaults, state, cat_mode_callback, extra_controls_before=None, extra_controls_after=None):
-    """Add standard global controls row (UI Scale, Cat Mode, etc.).
+def add_global_controls(defaults, state, cat_mode_callback=None,
+                        pause_callback=None, reset_extra=None,
+                        guide=None, guide_title="Guide"):
+    """Add standard global controls row.
+
+    Layout: [Reset All] [UI Scale] [Cat Mode] [Pause] [(no webcam)] [Guide ?]
 
     Args:
         defaults: Dictionary containing default values (must have "ui_scale")
         state: State object with use_camera and cat_mode attributes
-        cat_mode_callback: Callback for cat mode checkbox
-        extra_controls_before: Optional callable to add controls before Cat Mode
-        extra_controls_after: Optional callable to add controls after Cat Mode
-
-    Creates a horizontal group with:
-    - UI Scale slider
-    - Optional extra controls (before)
-    - Cat Mode checkbox
-    - Optional extra controls (after)
-    - "(no webcam)" text if camera unavailable
+        cat_mode_callback: Callback for cat mode checkbox (None to hide)
+        pause_callback: Callback for pause checkbox (None to hide).
+            Enabled only when a camera is present.
+        reset_extra: Optional callable for demo-specific reset logic beyond DEFAULTS
+        guide: Optional list of {"title": ..., "body": ...} guide steps
+        guide_title: Title for the guide modal window
     """
     with dpg.group(horizontal=True):
+        dpg.add_button(
+            label="Reset All",
+            callback=make_reset_all_callback(defaults, state, reset_extra)
+        )
+        dpg.add_spacer(width=10)
+
         dpg.add_combo(
             label="UI Scale",
             items=UI_SCALES,
@@ -180,22 +236,76 @@ def add_global_controls(defaults, state, cat_mode_callback, extra_controls_befor
         )
         dpg.add_spacer(width=20)
 
-        if extra_controls_before:
-            extra_controls_before()
+        if cat_mode_callback is not None:
+            dpg.add_checkbox(
+                label="Cat Mode",
+                default_value=getattr(state, "cat_mode", False),
+                callback=cat_mode_callback,
+                tag="cat_mode_checkbox",
+                enabled=getattr(state, "use_camera", True)
+            )
 
-        dpg.add_checkbox(
-            label="Cat Mode",
-            default_value=state.cat_mode,
-            callback=cat_mode_callback,
-            tag="cat_mode_checkbox",
-            enabled=state.use_camera
-        )
+        if pause_callback is not None:
+            dpg.add_checkbox(
+                label="Pause",
+                default_value=False,
+                callback=pause_callback,
+                tag="pause_checkbox",
+                enabled=getattr(state, "use_camera", True)
+            )
 
-        if extra_controls_after:
-            extra_controls_after()
+        if (cat_mode_callback is not None or pause_callback is not None):
+            if not getattr(state, "use_camera", True):
+                dpg.add_text("(no webcam)", color=(255, 100, 100))
 
-        if not state.use_camera:
-            dpg.add_text("(no webcam)", color=(255, 100, 100))
+        if guide:
+            dpg.add_spacer(width=20)
+            add_guide_button(guide, guide_title)
+
+
+def create_guide_window(guide_steps, title="Guide"):
+    """Create a hidden modal window with scrollable guide content.
+
+    Uses DPG's native title bar so the built-in close button works.
+
+    Args:
+        guide_steps: List of {"title": ..., "body": ...} dicts
+        title: Window title text
+
+    Returns:
+        The DPG window tag (string)
+    """
+    tag = dpg.generate_uuid()
+    with dpg.window(modal=True, show=False, tag=tag, label=title,
+                    width=600, height=500, pos=[100, 50]):
+        with dpg.child_window(border=False):
+            for i, step in enumerate(guide_steps):
+                if step.get("title"):
+                    dpg.add_text(step["title"], color=(255, 220, 120))
+                if step.get("body"):
+                    dpg.add_text(step["body"], wrap=550, color=(200, 200, 220))
+                if i < len(guide_steps) - 1:
+                    dpg.add_spacer(height=5)
+                    dpg.add_separator()
+                    dpg.add_spacer(height=5)
+    return tag
+
+
+def add_guide_button(guide_steps, title="Guide"):
+    """Add a "?" button that opens a guide modal.
+
+    Must be called within a DPG layout context (e.g. inside a group).
+
+    Args:
+        guide_steps: List of {"title": ..., "body": ...} dicts
+        title: Title for the guide modal window
+    """
+    if not guide_steps:
+        return
+    win_tag = create_guide_window(guide_steps, title)
+    dpg.add_button(
+        label="?", width=25,
+        callback=lambda: dpg.configure_item(win_tag, show=True))
 
 
 def add_parameter_row(label, tag, default, min_val, max_val, callback,
@@ -261,9 +371,9 @@ def create_parameter_table():
 
     Usage:
         with create_parameter_table():
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
+            dpg.add_table_column()                                        # label (auto-fit)
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=100)  # slider
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=30)   # reset
             # Add rows...
     """
     return dpg.table(
@@ -295,7 +405,7 @@ def setup_viewport(title, width, height, main_window_tag, resize_callback, ui_sc
     dpg.show_viewport()
     dpg.set_primary_window(main_window_tag, True)
     dpg.bind_item_handler_registry(main_window_tag, "viewport_handler")
-    dpg.set_global_font_scale(ui_scale)
+    dpg.set_global_font_scale(_ui_scale_to_gfs(ui_scale))
 
 
 def create_texture(width, height, tag):
@@ -365,21 +475,21 @@ def create_dual_parameter_table():
     )
 
 
-def add_dual_table_columns(label_width=80, slider_width=100, reset_width=30, spacer_width=20):
+def add_dual_table_columns(slider_width=100, reset_width=30, spacer_width=20):
     """Add columns for a dual-parameter table.
 
     Must be called immediately after creating the table with create_dual_parameter_table().
+    Label columns auto-fit to text content; slider/reset columns are fixed-width.
 
     Args:
-        label_width: Width of label columns
         slider_width: Width of slider columns
         reset_width: Width of reset button columns
         spacer_width: Width of spacer column between the two parameter sets
     """
-    dpg.add_table_column(width_fixed=True, init_width_or_weight=label_width)
+    dpg.add_table_column()  # label 1 (auto-fit)
     dpg.add_table_column(width_fixed=True, init_width_or_weight=slider_width)
     dpg.add_table_column(width_fixed=True, init_width_or_weight=reset_width)
     dpg.add_table_column(width_fixed=True, init_width_or_weight=spacer_width)
-    dpg.add_table_column(width_fixed=True, init_width_or_weight=label_width)
+    dpg.add_table_column()  # label 2 (auto-fit)
     dpg.add_table_column(width_fixed=True, init_width_or_weight=slider_width)
     dpg.add_table_column(width_fixed=True, init_width_or_weight=reset_width)

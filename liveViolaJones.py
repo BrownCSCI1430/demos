@@ -12,7 +12,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback
+from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback, add_global_controls
 
 # Default values
 DEFAULTS = {
@@ -23,6 +23,28 @@ DEFAULTS = {
     "cascade_type": "frontalface_default",
     "ui_scale": 1.5,
 }
+
+GUIDE_VIOLA_JONES = [
+    {"title": "Haar-like features",
+     "body": "Rectangular features measure intensity differences between adjacent "
+             "regions. They capture edges, lines, and center-surround patterns "
+             "characteristic of faces (e.g., eyes are darker than cheeks)."},
+    {"title": "Integral image",
+     "body": "A summed area table makes computing any rectangle sum O(1) \u2014 "
+             "just four lookups regardless of rectangle size. This enables "
+             "evaluating thousands of Haar features in real time."},
+    {"title": "AdaBoost cascade",
+     "body": "AdaBoost selects the most discriminative features and combines weak "
+             "classifiers into strong ones. Arranged in a cascade: early stages "
+             "use few features to quickly reject obvious non-faces (most windows). "
+             "Later stages use more features for difficult cases."},
+    {"title": "Cascade types and parameters",
+     "body": "Different cascades detect different objects: frontal face, profile, "
+             "eyes, smiles. Try switching cascades to see the difference.\n"
+             "Scale Factor: image pyramid step (smaller = slower but finer).\n"
+             "Min Neighbors: overlap filtering (higher = fewer false positives).\n"
+             "Min Size: smallest detectable face in pixels."},
+]
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -127,52 +149,47 @@ def main():
                           format=dpg.mvFormat_Float_rgba, tag="detection_texture")
 
     with dpg.window(label="Viola-Jones Face Detection Demo", tag="main_window"):
-        # Global controls row (custom for this demo due to cascade combo)
-        with dpg.group(horizontal=True):
-            dpg.add_combo(
-                label="Cascade",
-                items=list(CASCADES.keys()),
-                default_value=state.cascade_type,
-                callback=update_cascade_type,
-                tag="cascade_combo",
-                width=150
-            )
-            dpg.add_combo(
-                label="UI Scale",
-                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
-                default_value=str(DEFAULTS["ui_scale"]),
-                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
-                width=80
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_checkbox(
-                label="Show Boxes",
-                default_value=state.show_boxes,
-                callback=make_state_updater(state, "show_boxes")
-            )
-            dpg.add_checkbox(
-                label="Cat Mode",
-                default_value=state.cat_mode,
-                callback=make_state_updater(state, "cat_mode"),
-                tag="cat_mode_checkbox",
-                enabled=state.use_camera
-            )
-            if not state.use_camera:
-                dpg.add_text("(no webcam)", color=(255, 100, 100))
+        def _extra_reset():
+            for tag, key in [("scale_slider", "scale_factor"),
+                             ("neighbors_slider", "min_neighbors"),
+                             ("size_slider", "min_size"),
+                             ("cascade_combo", "cascade_type")]:
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, DEFAULTS[key])
+            load_cascade(DEFAULTS["cascade_type"])
+
+        add_global_controls(
+            DEFAULTS, state,
+            cat_mode_callback=make_state_updater(state, "cat_mode"),
+            reset_extra=_extra_reset,
+            guide=GUIDE_VIOLA_JONES, guide_title="Viola-Jones Face Detection",
+        )
 
         dpg.add_separator()
 
         # Detection parameters
         with dpg.collapsing_header(label="Detection Parameters", default_open=True):
+            with dpg.group(horizontal=True):
+                dpg.add_combo(
+                    label="Cascade", items=list(CASCADES.keys()),
+                    default_value=state.cascade_type,
+                    callback=update_cascade_type,
+                    tag="cascade_combo", width=150,
+                )
+                dpg.add_checkbox(
+                    label="Show Boxes", default_value=state.show_boxes,
+                    callback=make_state_updater(state, "show_boxes"),
+                    tag="show_boxes_checkbox",
+                )
             with dpg.table(header_row=False,
                            borders_innerV=False, borders_outerV=False,
                            borders_innerH=False, borders_outerH=False,
                            policy=dpg.mvTable_SizingFixedFit):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                dpg.add_table_column()  # label (auto-fit)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                dpg.add_table_column()  # label (auto-fit)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 

@@ -6,6 +6,8 @@ Real-time Canny edge detection on webcam input.
 import cv2
 import numpy as np
 
+from liveCannyEdges import GUIDE_CANNY
+
 
 WEB_CONFIG = {
     "title": "Canny Edge Detection",
@@ -36,6 +38,7 @@ WEB_CONFIG = {
         },
     },
     "layout": {"rows": [["input", "edges"]]},
+    "guide": GUIDE_CANNY,
 }
 
 

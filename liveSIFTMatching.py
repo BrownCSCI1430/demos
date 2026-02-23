@@ -21,6 +21,29 @@ DEFAULTS = {
     "ui_scale": 1.5,
 }
 
+GUIDE_SIFT = [
+    {"title": "Scale-invariant features",
+     "body": "SIFT finds keypoints that are stable across scale, rotation, and "
+             "illumination changes by searching a scale-space pyramid built from "
+             "Difference-of-Gaussians. Unlike Harris corners, SIFT features "
+             "persist at multiple resolutions."},
+    {"title": "Descriptors",
+     "body": "Each keypoint gets a 128-dimensional descriptor encoding the local "
+             "gradient distribution in a 16x16 patch around it. The descriptor is "
+             "normalized and aligned to the dominant gradient orientation, making "
+             "it robust to rotation and illumination changes."},
+    {"title": "KNN matching and Lowe's ratio test",
+     "body": "For each query descriptor, find the 2 nearest neighbors in the live "
+             "frame. Keep the match only if the best distance is significantly "
+             "less than the second-best (controlled by the Distance Ratio slider). "
+             "Lower ratio = stricter matching = fewer but more reliable matches."},
+    {"title": "Try it",
+     "body": "Select different query images and move the camera to match features. "
+             "Try rotating or tilting the view. SIFT matches survive geometric "
+             "changes that would break simpler methods like template matching. "
+             "Adjust the distance ratio to trade precision for recall."},
+]
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -209,7 +232,13 @@ def main():
                       parent=state.texture_registry)
 
     with dpg.window(label="SIFT Matching Demo", tag="main_window"):
-        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"))
+        def _extra_reset():
+            if dpg.does_item_exist("distance_slider"):
+                dpg.set_value("distance_slider", DEFAULTS["match_distance"])
+
+        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"),
+                            reset_extra=_extra_reset,
+                            guide=GUIDE_SIFT, guide_title="SIFT Feature Matching")
 
         dpg.add_separator()
 

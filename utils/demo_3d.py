@@ -80,10 +80,10 @@ def make_sphere(center, radius, color, n_lat=10, n_lon=16):
     vertices.append([cx, cy - radius, cz])
     vertices = np.array(vertices)
 
-    # Top cap triangles
+    # Top cap triangles (outward normal = away from center, i.e. +Y at pole)
     for j in range(n_lon):
         j_next = (j + 1) % n_lon
-        faces.append([0, 1 + j, 1 + j_next])
+        faces.append([0, 1 + j_next, 1 + j])
 
     # Quad strips between latitude rings
     for i in range(n_lat - 2):
@@ -93,9 +93,9 @@ def make_sphere(center, radius, color, n_lat=10, n_lon=16):
             j_next = (j + 1) % n_lon
             faces.append([
                 ring_start + j,
-                next_ring_start + j,
-                next_ring_start + j_next,
                 ring_start + j_next,
+                next_ring_start + j_next,
+                next_ring_start + j,
             ])
 
     # Bottom cap triangles
@@ -103,7 +103,7 @@ def make_sphere(center, radius, color, n_lat=10, n_lon=16):
     last_ring = 1 + (n_lat - 2) * n_lon
     for j in range(n_lon):
         j_next = (j + 1) % n_lon
-        faces.append([bottom, last_ring + j_next, last_ring + j])
+        faces.append([bottom, last_ring + j, last_ring + j_next])
 
     return {"vertices": vertices, "faces": faces, "color": color}
 
@@ -184,24 +184,24 @@ def make_cylinder(base_center, radius, height, color, n_seg=16):
     bot_start = 2
     top_start = 2 + n_seg
 
-    # Bottom cap (facing -Y)
+    # Bottom cap (outward normal = -Y)
     for i in range(n_seg):
         i_next = (i + 1) % n_seg
-        faces.append([0, bot_start + i_next, bot_start + i])
+        faces.append([0, bot_start + i, bot_start + i_next])
 
-    # Top cap (facing +Y)
+    # Top cap (outward normal = +Y)
     for i in range(n_seg):
         i_next = (i + 1) % n_seg
-        faces.append([1, top_start + i, top_start + i_next])
+        faces.append([1, top_start + i_next, top_start + i])
 
-    # Side quads
+    # Side quads (outward normal = radially outward)
     for i in range(n_seg):
         i_next = (i + 1) % n_seg
         faces.append([
             bot_start + i,
-            bot_start + i_next,
-            top_start + i_next,
             top_start + i,
+            top_start + i_next,
+            bot_start + i_next,
         ])
 
     return {"vertices": vertices, "faces": faces, "color": color}
@@ -408,6 +408,7 @@ def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 
 
     M = K @ Rt
     R = Rt[:, :3]
+    cam_pos = -R.T @ Rt[:, 3]  # camera position in world coordinates
 
     img = np.full((img_h, img_w, 3), bg_color, dtype=np.uint8)
 
@@ -457,10 +458,9 @@ def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 
                     continue
                 normal_world = normal_world / norm_len
 
-                # Back-face culling: transform normal to camera space
-                normal_cam = R @ normal_world
-                if normal_cam[2] > 0:
-                    # Normal points away from camera (positive Z = away in camera space)
+                # Perspective-correct back-face culling
+                face_center = np.mean(verts[face_idx], axis=0)
+                if np.dot(normal_world, face_center - cam_pos) > 0:
                     continue
 
                 # Lambertian shading

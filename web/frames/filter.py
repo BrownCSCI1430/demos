@@ -6,6 +6,7 @@ Image filtering with interactive kernel editor.
 import cv2
 import numpy as np
 
+from liveFilter import GUIDE_FILTER
 from utils.demo_kernels import (
     KERNEL_PRESETS, SIGMA_KERNELS, ZERO_DC_KERNELS,
     create_kernel,
@@ -138,6 +139,7 @@ WEB_CONFIG = {
     },
     "mouse": ["kernel_editor"],
     "layout": {"rows": [["input", "filtered"], ["kernel_editor"]]},
+    "guide": GUIDE_FILTER,
 }
 
 

@@ -3,7 +3,7 @@ Web frame module for liveStarter demo.
 Minimal template — passes camera input through process_frame().
 """
 
-from liveStarter import process_frame
+from liveStarter import process_frame, GUIDE_STARTER
 
 WEB_CONFIG = {
     "title": "Starter Template",
@@ -18,6 +18,7 @@ WEB_CONFIG = {
     ],
     "controls": {},
     "layout": {"rows": [["input", "output"]]},
+    "guide": GUIDE_STARTER,
 }
 
 

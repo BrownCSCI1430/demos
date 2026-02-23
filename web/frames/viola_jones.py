@@ -6,6 +6,8 @@ Face detection using Haar cascade classifiers.
 import cv2
 import numpy as np
 
+from liveViolaJones import GUIDE_VIOLA_JONES
+
 # Available cascades — these ship with opencv-python
 CASCADES = {
     "frontalface_default": "haarcascade_frontalface_default.xml",
@@ -82,6 +84,7 @@ WEB_CONFIG = {
         },
     },
     "layout": {"rows": [["detection"]]},
+    "guide": GUIDE_VIOLA_JONES,
 }
 
 

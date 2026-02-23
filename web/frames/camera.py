@@ -10,6 +10,7 @@ from liveCamera import (
     scene_meshes, overview_K, overview_Rt,
     DEFAULTS, OVERVIEW_SIZE, state as cam_state,
     _fmt_mat, _K_SYMBOLIC, _RT_SYMBOLIC, _M_SYMBOLIC,
+    GUIDE_CAMERA,
 )
 from utils.demo_3d import euler_from_rotation
 
@@ -107,6 +108,7 @@ WEB_CONFIG = {
         },
     },
     "layout": {"rows": [["camera_view", "overview"]]},
+    "guide": GUIDE_CAMERA,
 }
 
 # Track previous reference frame to detect changes

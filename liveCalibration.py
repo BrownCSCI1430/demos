@@ -44,6 +44,7 @@ from utils.demo_ui import (
     setup_viewport, make_state_updater, make_reset_callback,
     create_parameter_table, add_parameter_row,
     load_fonts, bind_mono_font,
+    add_global_controls,
 )
 
 
@@ -59,6 +60,31 @@ DEFAULTS = {
     "offset_exp": 0,
     "scale_exp": 0,
 }
+
+GUIDE_CALIBRATION = [
+    {"title": "Camera calibration via DLT",
+     "body": "Given N 3D-to-2D correspondences, estimate the 3\u00d74 projection "
+             "matrix M by solving Ah = 0 where h = vec(M). Each correspondence "
+             "contributes 2 rows to A, so N points give a 2N\u00d712 system."},
+    {"title": "SVD gives the null vector",
+     "body": "SVD(A) = U\u03a3V\u1d40. The last row of V\u1d40 minimises ||Ah|| subject to "
+             "||h||=1. Reshape to 3\u00d74 to get M. The smallest singular value "
+             "(\u03c3\u2081\u2082) measures fit quality \u2014 it should be near zero."},
+    {"title": "Hartley normalization",
+     "body": "Toggle Hartley to see the condition number improve dramatically. "
+             "Hartley normalization translates points to zero mean and scales to "
+             "unit standard deviation before building A. This makes the system "
+             "numerically stable without changing the geometric solution."},
+    {"title": "Coordinate distortion",
+     "body": "Use the Origin Shift and World Scale sliders to simulate distant "
+             "coordinate origins or unit mismatches (e.g., millimetres vs metres). "
+             "Without Hartley, conditioning explodes. With Hartley, it stays stable."},
+    {"title": "Degeneracies",
+     "body": "Toggle 'Coplanar' mode: all training points lie on a plane. "
+             "Training error stays small but the off-plane probe points (white "
+             "octahedrons) show large reprojection error. DLT needs non-degenerate "
+             "3D point configurations for a reliable estimate."},
+]
 
 IMG_W, IMG_H   = 480, 480
 OVERVIEW_SIZE  = 500
@@ -522,16 +548,13 @@ def on_mouse_wheel(sender, app_data):
     if dpg.is_item_hovered("overview_img"):
         OvCam.radius = float(np.clip(OvCam.radius * (0.85 ** app_data), 2.0, 60.0))
 
-def reset_all():
-    state.noise_px = DEFAULTS["noise_px"]
-    state.n_points = DEFAULTS["n_points"]
-    state.offset_exp = DEFAULTS["offset_exp"]
-    state.scale_exp  = DEFAULTS["scale_exp"]
-    state.show_A_matrix  = False
-    state.use_hartley    = False
-    state.use_coplanar   = False
-    state.use_normal_eqs = DEFAULTS["use_normal_eqs"]
+def _calib_extra_reset():
+    """Extra reset logic beyond DEFAULTS iteration."""
+    state.show_A_matrix = False
+    state.use_hartley = False
+    state.use_coplanar = False
     OvCam.reset()
+    # Non-standard slider/checkbox tags
     for tag, val in [
         ("noise_slider",     DEFAULTS["noise_px"]),
         ("npts_slider",      DEFAULTS["n_points"]),
@@ -576,15 +599,11 @@ def main():
     with dpg.window(label="Camera Calibration Demo (DLT)", tag="main_window"):
 
         # ── Global controls ──────────────────────────────────────────────────
-        with dpg.group(horizontal=True):
-            dpg.add_combo(
-                label="UI Scale",
-                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
-                default_value=str(DEFAULTS["ui_scale"]), width=80,
-                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_button(label="Reset All", callback=lambda: reset_all())
+        add_global_controls(
+            DEFAULTS, state,
+            reset_extra=_calib_extra_reset,
+            guide=GUIDE_CALIBRATION, guide_title="Camera Calibration (DLT)",
+        )
 
         # ── Control panels ───────────────────────────────────────────────────
         with dpg.group(horizontal=True):
@@ -593,7 +612,7 @@ def main():
             with dpg.child_window(width=290, height=170, border=False, no_scrollbar=True):
                 with dpg.collapsing_header(label="Input Data", default_open=True):
                     with create_parameter_table():
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                        dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
                         add_parameter_row(
@@ -637,7 +656,7 @@ def main():
             with dpg.child_window(width=330, height=170, border=False, no_scrollbar=True):
                 with dpg.collapsing_header(label="3D Coordinate Shift/Scale", default_open=True):
                     with create_parameter_table():
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
+                        dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
                         add_parameter_row(

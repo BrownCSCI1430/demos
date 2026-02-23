@@ -12,7 +12,7 @@ from skimage import img_as_float
 from skimage.color import rgb2gray
 
 from utils.demo_utils import init_camera, load_fallback_image, convert_cv_to_dpg_float, crop_to_square, get_frame
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback
+from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback, add_global_controls
 
 # Default values
 DEFAULTS = {
@@ -31,6 +31,33 @@ DEFAULTS = {
     "animate_orientation": True,
     "ui_scale": 1.5,
 }
+
+GUIDE_FOURIER = [
+    {"title": "The 2D Fourier Transform",
+     "body": "Every image decomposes into 2D sinusoids at different frequencies, "
+             "orientations, amplitudes, and phases. The amplitude spectrum shows "
+             "how much energy is at each frequency; phase encodes where structures "
+             "are positioned spatially."},
+    {"title": "Normal FFT mode",
+     "body": "Low frequencies (center of spectrum) = smooth gradients and large-"
+             "scale structure. High frequencies (edges of spectrum) = sharp details, "
+             "edges, and noise. Amplitude is shown on a log scale for visibility."},
+    {"title": "Rotating Dot mode",
+     "body": "A single dot in the frequency domain corresponds to one sinusoidal "
+             "pattern. Distance from center = spatial frequency (how fast it "
+             "oscillates). Angle = stripe orientation. Watch how the reconstructed "
+             "image changes as the dot orbits."},
+    {"title": "Spatial transforms",
+     "body": "Rotating the image rotates the spectrum by the same angle.\n"
+             "Translating shifts phase but not amplitude.\n"
+             "Scaling intensity changes the DC component (center peak).\n"
+             "Use the Input 2D Transforms sliders to see these relationships."},
+    {"title": "Amplitude vs phase",
+     "body": "Amplitude controls contrast and energy distribution.\n"
+             "Phase controls spatial structure and alignment.\n"
+             "Try zeroing DC (removes mean brightness) or adjusting amplitude "
+             "scale to see their different roles."},
+]
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -253,39 +280,40 @@ def main():
 
     with dpg.window(label="Fourier Transform Demo", tag="main_window"):
         # Global controls row
-        with dpg.group(horizontal=True):
-            dpg.add_combo(
-                label="Mode",
-                items=["Normal FFT", "DC Only", "Rotating Dot", "Frequency Reconstruction"],
-                default_value="Normal FFT",
-                callback=update_mode,
-                tag="mode_combo",
-                width=160
-            )
-            dpg.add_combo(
-                label="UI Scale",
-                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
-                default_value=str(DEFAULTS["ui_scale"]),
-                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
-                width=80
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_checkbox(label="Pause", default_value=state.pause,
-                           callback=make_state_updater(state, "pause"))
-            dpg.add_checkbox(
-                label="Cat Mode",
-                default_value=state.cat_mode,
-                callback=make_state_updater(state, "cat_mode"),
-                tag="cat_mode_checkbox",
-                enabled=state.use_camera
-            )
-            if not state.use_camera:
-                dpg.add_text("(no webcam)", color=(255, 100, 100))
+        def _extra_reset():
+            for tag, key in [("amplitude_slider", "amplitude_scalar"),
+                             ("phase_slider", "phase_offset")]:
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, DEFAULTS[key])
+            state.mode = 0
+            if dpg.does_item_exist("mode_combo"):
+                dpg.set_value("mode_combo", "Normal FFT")
+            if dpg.does_item_exist("animation_panel"):
+                dpg.configure_item("animation_panel", show=False)
+
+        add_global_controls(
+            DEFAULTS, state,
+            cat_mode_callback=make_state_updater(state, "cat_mode"),
+            pause_callback=make_state_updater(state, "pause"),
+            reset_extra=_extra_reset,
+            guide=GUIDE_FOURIER, guide_title="Fourier Transform",
+        )
 
         dpg.add_separator()
 
         # Parameters using child_window containers
         with dpg.group(horizontal=True):
+            # Mode selector
+            with dpg.child_window(width=200, height=130, border=False, no_scrollbar=True):
+                with dpg.collapsing_header(label="Mode", default_open=True):
+                    dpg.add_combo(
+                        items=["Normal FFT", "DC Only", "Rotating Dot", "Frequency Reconstruction"],
+                        default_value="Normal FFT", callback=update_mode,
+                        tag="mode_combo", width=160,
+                    )
+
+            dpg.add_spacer(width=10)
+
             # Column 1: Input Intensity
             with dpg.child_window(width=300, height=130, border=False, no_scrollbar=True):
                 with dpg.collapsing_header(label="Input Intensity [0,1]", default_open=True):
@@ -293,7 +321,7 @@ def main():
                                    borders_innerV=False, borders_outerV=False,
                                    borders_innerH=False, borders_outerH=False,
                                    policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=70)
+                        dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 
@@ -326,7 +354,7 @@ def main():
                                    borders_innerV=False, borders_outerV=False,
                                    borders_innerH=False, borders_outerH=False,
                                    policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=130)
+                        dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 
@@ -379,7 +407,7 @@ def main():
                                    borders_innerV=False, borders_outerV=False,
                                    borders_innerH=False, borders_outerH=False,
                                    policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=240)
+                        dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 

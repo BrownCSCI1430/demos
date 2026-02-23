@@ -6,6 +6,8 @@ Harris corner detection with affine transforms and brightness adjustments.
 import cv2
 import numpy as np
 
+from liveHarrisCorners import GUIDE_HARRIS
+
 
 def _apply_harris(gray, block_size, ksize, k, threshold):
     """Run Harris corner detection, return image with corners marked red."""
@@ -102,6 +104,7 @@ WEB_CONFIG = {
         },
     },
     "layout": {"rows": [["original", "transformed"]]},
+    "guide": GUIDE_HARRIS,
 }
 
 

@@ -13,6 +13,7 @@ from liveTriangulation import (
     M1, M2, F_MATRIX, _BASE_LEFT, _BASE_RIGHT,
     K_SHARED, _Rt1, _Rt2, _OV_K, _OV_Rt, _SCENE,
     IMG_W, IMG_H, OVERVIEW_SIZE,
+    GUIDE_TRIANGULATION,
 )
 from utils.demo_3d import render_scene, make_frustum_mesh, make_axis_mesh, make_sphere
 
@@ -41,6 +42,7 @@ WEB_CONFIG = {
     },
     "mouse": ["left_img", "right_img"],
     "layout": {"rows": [["left_img", "right_img"], ["overview"]]},
+    "guide": GUIDE_TRIANGULATION,
 }
 
 

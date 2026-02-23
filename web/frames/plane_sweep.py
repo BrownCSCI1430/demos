@@ -13,6 +13,7 @@ from livePlaneSweep import (
     compute_H_lam, warp_other_to_ref, compute_ncc_score,
     draw_ncc_curve,
     _OV_K, _OV_Rt,
+    GUIDE_PLANE_SWEEP,
 )
 from utils.demo_3d import render_scene, make_frustum_mesh, make_axis_mesh
 
@@ -42,6 +43,7 @@ WEB_CONFIG = {
             ["overview"],
         ],
     },
+    "guide": GUIDE_PLANE_SWEEP,
 }
 
 

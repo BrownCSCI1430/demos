@@ -6,7 +6,7 @@ Fourier Transform visualization with multiple modes.
 import numpy as np
 import cv2
 
-from liveFourier import process_fft, transform_image
+from liveFourier import process_fft, transform_image, GUIDE_FOURIER
 
 # ── Module-level state for animation ──
 _frame_counter = 0
@@ -101,6 +101,7 @@ WEB_CONFIG = {
         },
     },
     "layout": {"rows": [["input", "inverse"], ["amplitude", "phase"]]},
+    "guide": GUIDE_FOURIER,
 }
 
 

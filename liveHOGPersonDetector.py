@@ -12,7 +12,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback
+from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback, add_global_controls
 
 # Default values
 DEFAULTS = {
@@ -22,6 +22,27 @@ DEFAULTS = {
     "show_boxes": True,
     "ui_scale": 1.5,
 }
+
+GUIDE_HOG = [
+    {"title": "HOG features",
+     "body": "Histogram of Oriented Gradients describes local shape via gradient "
+             "orientation histograms in cells (8\u00d78 pixels), normalized across "
+             "overlapping blocks (2\u00d72 cells). This captures edge structure while "
+             "being robust to illumination changes."},
+    {"title": "Sliding window detection",
+     "body": "A fixed-size window (64\u00d7128 pixels) slides across the image at "
+             "multiple scales. At each position, the HOG descriptor is extracted "
+             "and classified by a pre-trained SVM."},
+    {"title": "SVM classifier",
+     "body": "The detector uses a linear SVM trained on labeled HOG features "
+             "(person vs non-person). The decision boundary separates the two "
+             "classes in the 3780-dimensional HOG feature space."},
+    {"title": "Parameters",
+     "body": "Hit Threshold: SVM decision boundary offset. Higher = fewer false "
+             "positives but may miss some detections.\n"
+             "Win Stride: step size for the sliding window (smaller = denser search).\n"
+             "Scale: image pyramid step size for multi-scale detection."},
+]
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -104,44 +125,35 @@ def main():
                           format=dpg.mvFormat_Float_rgba, tag="detection_texture")
 
     with dpg.window(label="HOG Person Detection Demo", tag="main_window"):
-        # Global controls row
-        with dpg.group(horizontal=True):
-            dpg.add_combo(
-                label="UI Scale",
-                items=["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"],
-                default_value=str(DEFAULTS["ui_scale"]),
-                callback=lambda s, v: dpg.set_global_font_scale(float(v)),
-                width=80
-            )
-            dpg.add_spacer(width=20)
-            dpg.add_checkbox(
-                label="Show Boxes",
-                default_value=state.show_boxes,
-                callback=make_state_updater(state, "show_boxes")
-            )
-            dpg.add_checkbox(
-                label="Cat Mode",
-                default_value=state.cat_mode,
-                callback=make_state_updater(state, "cat_mode"),
-                tag="cat_mode_checkbox",
-                enabled=state.use_camera
-            )
-            if not state.use_camera:
-                dpg.add_text("(no webcam)", color=(255, 100, 100))
+        def _extra_reset():
+            if dpg.does_item_exist("stride_slider"):
+                dpg.set_value("stride_slider", DEFAULTS["win_stride"])
+
+        add_global_controls(
+            DEFAULTS, state,
+            cat_mode_callback=make_state_updater(state, "cat_mode"),
+            reset_extra=_extra_reset,
+            guide=GUIDE_HOG, guide_title="HOG Person Detection",
+        )
 
         dpg.add_separator()
 
         # Detection parameters
         with dpg.collapsing_header(label="Detection Parameters", default_open=True):
+            dpg.add_checkbox(
+                label="Show Boxes", default_value=state.show_boxes,
+                callback=make_state_updater(state, "show_boxes"),
+                tag="show_boxes_checkbox",
+            )
             with dpg.table(header_row=False,
                            borders_innerV=False, borders_outerV=False,
                            borders_innerH=False, borders_outerH=False,
                            policy=dpg.mvTable_SizingFixedFit):
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                dpg.add_table_column()  # label (auto-fit)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                dpg.add_table_column()  # label (auto-fit)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
                 dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
 
