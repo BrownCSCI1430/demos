@@ -65,26 +65,13 @@ def _project(M, pts3d):
     return proj[:, :2] / proj[:, 2:3]
 
 
-# Planar points for homography mode (coplanar on the ground plane y=0)
-PLANE_PTS3D = np.array([
-    [x, 0.0, z]
-    for z in np.linspace(-2.0, 2.0, 6)
-    for x in np.linspace(-2.0, 2.0, 6)
-], dtype=np.float64)  # 36 points on the ground
-
-
 def _sample_scene_surface_points():
-    """Sample 3D points on surfaces of the default scene objects.
+    """Sample 3D points on surfaces of the scene objects (cubes, sphere, cylinder).
 
-    Points lie on the actual geometry (cubes, sphere, cylinder, ground)
-    so that their 2D projections correspond to real scene locations.
+    Points lie on the actual geometry surfaces so that their 2D projections
+    correspond to real scene locations.
     """
     pts = []
-
-    # Ground plane (y=0)
-    for x in np.linspace(-2.5, 2.5, 5):
-        for z in np.linspace(-2.0, 2.0, 5):
-            pts.append([x, 0.0, z])
 
     # Blue cube: center=(-1.5, 0.5, 0), size=1.0, half=0.5
     cx, cy, cz, h = -1.5, 0.5, 0.0, 0.5
@@ -123,8 +110,8 @@ def _sample_scene_surface_points():
     return np.array(pts, dtype=np.float64)
 
 
-# Volume points for fundamental matrix mode (on scene object surfaces)
-VOLUME_PTS3D = _sample_scene_surface_points()
+# Points on scene objects (cubes, sphere, cylinder) — used for both modes
+OBJ_PTS3D = _sample_scene_surface_points()
 
 # Filter to visible points (project into both images)
 def _filter_visible(pts3d, margin=15):
@@ -139,20 +126,22 @@ def _filter_visible(pts3d, margin=15):
     return pts3d[mask]
 
 
-PLANE_VIS = _filter_visible(PLANE_PTS3D, margin=20)
-VOLUME_VIS = _filter_visible(VOLUME_PTS3D, margin=20)
+OBJ_VIS = _filter_visible(OBJ_PTS3D, margin=20)
 
 # Pre-computed projections
-PLANE_PTS1 = _project(M1, PLANE_VIS)
-PLANE_PTS2 = _project(M2, PLANE_VIS)
-VOLUME_PTS1 = _project(M1, VOLUME_VIS)
-VOLUME_PTS2 = _project(M2, VOLUME_VIS)
+OBJ_PTS1 = _project(M1, OBJ_VIS)
+OBJ_PTS2 = _project(M2, OBJ_VIS)
 
 # Fixed noise patterns (scaled by noise_px slider)
-PLANE_NOISE1 = _RNG.standard_normal(PLANE_PTS1.shape)
-PLANE_NOISE2 = _RNG.standard_normal(PLANE_PTS2.shape)
-VOLUME_NOISE1 = _RNG.standard_normal(VOLUME_PTS1.shape)
-VOLUME_NOISE2 = _RNG.standard_normal(VOLUME_PTS2.shape)
+OBJ_NOISE1 = _RNG.standard_normal(OBJ_PTS1.shape)
+OBJ_NOISE2 = _RNG.standard_normal(OBJ_PTS2.shape)
+
+# Aliases kept for compatibility
+VOLUME_VIS   = OBJ_VIS
+VOLUME_PTS1  = OBJ_PTS1
+VOLUME_PTS2  = OBJ_PTS2
+VOLUME_NOISE1 = OBJ_NOISE1
+VOLUME_NOISE2 = OBJ_NOISE2
 
 
 # ── Pre-rendered images ────────────────────────────────────────────────
@@ -284,13 +273,13 @@ _B, _a = compute_B_and_a(K_SHARED, _Rt1, _Rt2)
 # λ parameterizes depth planes perpendicular to camera 1's optical axis.
 # The scene center is roughly at depth 5–6 from camera 1.
 _e3 = np.array([0.0, 0.0, 1.0])
-_p1_h = np.column_stack([PLANE_PTS1, np.ones(len(PLANE_PTS1))])
+_p1_h = np.column_stack([OBJ_PTS1, np.ones(len(OBJ_PTS1))])
 _best_lam, _best_err = 5.0, float("inf")
 for _lam in np.linspace(0.1, 15.0, 1000):
     _H_try = _lam * _B + np.outer(_a, _e3)
     _pr = (_H_try @ _p1_h.T).T
     _pr = _pr[:, :2] / _pr[:, 2:3]
-    _err = float(np.mean(np.sum((_pr - PLANE_PTS2) ** 2, axis=1)))
+    _err = float(np.mean(np.sum((_pr - OBJ_PTS2) ** 2, axis=1)))
     if _err < _best_err:
         _best_err = _err
         _best_lam = _lam
@@ -545,7 +534,7 @@ def render_svd_panel(U, S, Vt, canvas_w, canvas_h,
     # --- Draw Σ as bar chart ---
     bar_x0 = u_x0 + max_cols * cell_sz_u + gap + 10
 
-    cv2.putText(img, "Σ", (bar_x0, y_off - 2), cv2.FONT_HERSHEY_SIMPLEX,
+    cv2.putText(img, "S", (bar_x0, y_off - 2), cv2.FONT_HERSHEY_SIMPLEX,
                 0.35, (180, 180, 200), 1, cv2.LINE_AA)
 
     s_max = S[0] if S[0] > 0 else 1.0
@@ -568,7 +557,7 @@ def render_svd_panel(U, S, Vt, canvas_w, canvas_h,
         cv2.rectangle(img, (bar_x0, y1), (bar_x0 + bw, y2), bar_color, -1)
 
         # Label
-        lbl = f"σ{i+1}={S[i]:.3g}"
+        lbl = f"s{i+1}={S[i]:.3g}"
         if sigma_labels and i < len(sigma_labels):
             lbl = sigma_labels[i]
         cv2.putText(img, lbl, (bar_x0 + bw + 4, y2 - 1),
@@ -755,13 +744,13 @@ GUIDE_FUNDAMENTAL = [
         "body": (
             "Given N ≥ 8 point correspondences in two views of a general 3D "
             "scene, DLT constructs an N×9 matrix A (one row per correspondence). "
-            "SVD(A) → null vector f → reshape to 3×3 F̂."
+            "SVD(A) → null vector f → reshape to 3×3 F^."
         ),
     },
     {
-        "title": "2. F̂ is not quite right",
+        "title": "2. F^ is not quite right",
         "body": (
-            "The SVD of F̂ has three singular values σ₁, σ₂, σ₃. For a proper "
+            "The SVD of F^ has three singular values σ₁, σ₂, σ₃. For a proper "
             "fundamental matrix, F must be rank 2 (σ₃ = 0). With noise, σ₃ is "
             "small but nonzero."
         ),
@@ -837,6 +826,7 @@ if __name__ == "__main__":
         "decompose_H": False,
         "lambda_val": LAM_DEFAULT,
         "epipole_coeff": 1.0,
+        "highlight_h": 0,
         "show_warp": True,
         "show_epipolar_lines": True,
         "show_epipoles": True,
@@ -854,6 +844,7 @@ if __name__ == "__main__":
         decompose_H = DEFAULTS["decompose_H"]
         lambda_val = DEFAULTS["lambda_val"]
         epipole_coeff = DEFAULTS["epipole_coeff"]
+        highlight_h = DEFAULTS["highlight_h"]
         show_warp = DEFAULTS["show_warp"]
         show_epipolar_lines = DEFAULTS["show_epipolar_lines"]
         show_epipoles = DEFAULTS["show_epipoles"]
@@ -867,34 +858,43 @@ if __name__ == "__main__":
     def _on_mode_change(sender, app_data):
         state.mode = app_data
 
+    def _pick_random_point():
+        n_avail = len(OBJ_VIS)
+        n = min(max(4, state.n_points), n_avail)
+        state.highlight_h = int(np.random.randint(0, n))
+        # Best-fit λ = depth of the picked point in camera 1's frame
+        X = OBJ_VIS[state.highlight_h]
+        depth = float((_Rt1[:, :3] @ X + _Rt1[:, 3])[2])
+        best_lam = float(np.clip(depth, 0.5, 8.0))
+        state.lambda_val = best_lam
+        if dpg.does_item_exist("lambda_val"):
+            dpg.set_value("lambda_val", best_lam)
+
     # ── Render loop ────────────────────────────────────────────────────
     def render_frame():
         """Compute and render one frame of the DLT demo."""
         is_homography = state.mode == "Homography"
 
         # Select points and add noise
+        n_avail = len(OBJ_VIS)
         if is_homography:
-            n_avail = len(PLANE_VIS)
             n = min(max(4, state.n_points), n_avail)
-            pts3d = PLANE_VIS[:n]
-            pts1_true = PLANE_PTS1[:n]
-            pts2_true = PLANE_PTS2[:n]
-            pts1 = pts1_true + PLANE_NOISE1[:n] * state.noise_px
-            pts2 = pts2_true + PLANE_NOISE2[:n] * state.noise_px
-            base1, base2 = SCENE_IMG1.copy(), SCENE_IMG2.copy()
         else:
-            n_avail = len(VOLUME_VIS)
             n = min(max(8, state.n_points), n_avail)
-            pts3d = VOLUME_VIS[:n]
-            pts1_true = VOLUME_PTS1[:n]
-            pts2_true = VOLUME_PTS2[:n]
-            pts1 = pts1_true + VOLUME_NOISE1[:n] * state.noise_px
-            pts2 = pts2_true + VOLUME_NOISE2[:n] * state.noise_px
-            base1, base2 = SCENE_IMG1.copy(), SCENE_IMG2.copy()
+        pts3d = OBJ_VIS[:n]
+        pts1_true = OBJ_PTS1[:n]
+        pts2_true = OBJ_PTS2[:n]
+        pts1 = pts1_true + OBJ_NOISE1[:n] * state.noise_px
+        pts2 = pts2_true + OBJ_NOISE2[:n] * state.noise_px
+        base1, base2 = SCENE_IMG1.copy(), SCENE_IMG2.copy()
+
+        hl = state.highlight_h % n  # highlighted point index (homography mode only)
 
         # ── Camera 1 view ──────────────────────────────────────────────
         view1 = base1.copy()
         draw_points(view1, pts1, pts3d, radius=5)
+        if is_homography:
+            cv2.circle(view1, tuple(pts1[hl].astype(int)), 9, (0, 255, 255), 2)
 
         # ── Run DLT ────────────────────────────────────────────────────
         status_lines = []
@@ -905,14 +905,11 @@ if __name__ == "__main__":
                 H, A, U, S, Vt, cond_A, fit_resid = estimate_H_dlt(
                     pts1, pts2, use_hartley=state.use_hartley)
 
-                # Warp cam1 to cam2
+                # Warp cam1 to cam2 — always driven by the λ slider
                 view2 = base2.copy()
-                if state.decompose_H:
-                    H_decomp = compose_H_lambda(
-                        _B, _a, state.lambda_val, state.epipole_coeff)
-                    warped = warp_image(base1, H_decomp, IMG_W, IMG_H)
-                else:
-                    warped = warp_image(base1, H, IMG_W, IMG_H)
+                H_lam = compose_H_lambda(
+                    _B, _a, state.lambda_val, state.epipole_coeff)
+                warped = warp_image(base1, H_lam, IMG_W, IMG_H)
 
                 if state.show_warp:
                     mask = warped.any(axis=2)
@@ -920,6 +917,7 @@ if __name__ == "__main__":
                         view2, 0.3, warped, 0.7, 0)[mask]
 
                 draw_points(view2, pts2, pts3d, radius=5)
+                cv2.circle(view2, tuple(pts2[hl].astype(int)), 9, (0, 255, 255), 2)
 
                 # Reprojection error
                 pts2_est = np.zeros_like(pts1)
@@ -937,17 +935,16 @@ if __name__ == "__main__":
                     f"cond(A): σ₁/σ₈ = {cond_A:.3g} | "
                     f"fit residual: σ₉ = {fit_resid:.4g}")
                 status_lines.append(f"Reprojection error: {reproj:.2f} px")
-                if state.decompose_H:
-                    status_lines.append(
-                        f"H(λ) = {state.lambda_val:.2f}·B + "
-                        f"{state.epipole_coeff:.2f}·ae₃ᵀ  "
-                        f"(best-fit λ ≈ {LAM_DEFAULT:.1f})")
+                status_lines.append(
+                    f"Warp: H(λ={state.lambda_val:.2f}) = λ·B + "
+                    f"{state.epipole_coeff:.2f}·ae₃ᵀ  "
+                    f"(best-fit λ ≈ {LAM_DEFAULT:.1f})")
 
                 # SVD panel
                 if state.show_svd_A:
                     svd_img = render_svd_panel(
                         U, S, Vt, 500, 250,
-                        title="SVD of A (2N×9 DLT system)",
+                        title="SVD of A (2Nx9 DLT system)",
                         highlight_null_col_V=True)
 
             except Exception as e:
@@ -990,7 +987,7 @@ if __name__ == "__main__":
                     f"cond(A): σ₁/σ₈ = {result['cond_A']:.3g} | "
                     f"fit residual: σ₉ = {result['fit_resid']:.4g}")
                 status_lines.append(
-                    f"σ₃(F̂) = {result['S_F'][2]:.4g} "
+                    f"σ₃(F^) = {result['S_F'][2]:.4g} "
                     f"(forced to 0 for rank-2)")
                 status_lines.append(
                     f"Epipoles: e₁=({e1[0]:.0f}, {e1[1]:.0f}) "
@@ -999,14 +996,14 @@ if __name__ == "__main__":
                 # SVD panel
                 if state.show_svd_F:
                     sigma_labels = [
-                        f"σ₁={result['S_F'][0]:.3g}",
-                        f"σ₂={result['S_F'][1]:.3g}",
-                        f"σ₃={result['S_F'][2]:.3g} → 0",
+                        f"s1={result['S_F'][0]:.3g}",
+                        f"s2={result['S_F'][1]:.3g}",
+                        f"s3={result['S_F'][2]:.3g} -> 0",
                     ]
                     svd_img = render_svd_panel(
                         result["U_F"], result["S_F"], result["Vt_F"],
                         500, 250,
-                        title="SVD of F̂ (rank enforcement)",
+                        title="SVD of Fhat (rank enforcement)",
                         highlight_null_col_V=True,
                         highlight_null_col_U=True,
                         sigma_labels=sigma_labels)
@@ -1014,7 +1011,7 @@ if __name__ == "__main__":
                     svd_img = render_svd_panel(
                         result["U_A"], result["S_A"], result["Vt_A"],
                         500, 250,
-                        title="SVD of A (N×9 DLT system)",
+                        title="SVD of A (Nx9 DLT system)",
                         highlight_null_col_V=True)
 
             except Exception as e:
@@ -1113,22 +1110,24 @@ if __name__ == "__main__":
 
             # Controls
             with dpg.group(horizontal=True):
-                # Mode selector
-                with dpg.child_window(width=240, height=280, border=False,
+                # Block 1: Mode ───────────────────────────────────────────────
+                with dpg.child_window(width=220, height=200, border=False,
                                        no_scrollbar=True):
                     with dpg.collapsing_header(label="Mode", default_open=True):
                         dpg.add_combo(["Homography", "Fundamental Matrix"],
-                                      default_value=state.mode, label="Mode",
-                                      callback=_on_mode_change, width=200)
+                                      default_value=state.mode, callback=_on_mode_change, width=180)
 
-                dpg.add_spacer(width=10)
+                dpg.add_spacer(width=8)
 
-                # Left column: parameters
-                with dpg.child_window(width=450, height=280, border=False,
+                # Block 2: Input Data ─────────────────────────────────────────
+                with dpg.child_window(width=270, height=200, border=False,
                                        no_scrollbar=True):
                     with dpg.collapsing_header(label="Input Data",
                                                 default_open=True):
                         with create_parameter_table():
+                            dpg.add_table_column()
+                            dpg.add_table_column(width_fixed=True, init_width_or_weight=200)
+                            dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                             add_parameter_row(
                                 "Noise (px)", "noise_px", DEFAULTS["noise_px"],
                                 0.0, 15.0,
@@ -1146,6 +1145,11 @@ if __name__ == "__main__":
                                                     DEFAULTS["n_points"]),
                                 slider_type="int", width=200, format_str="%d")
 
+                dpg.add_spacer(width=8)
+
+                # Block 3: Solver ─────────────────────────────────────────────
+                with dpg.child_window(width=200, height=200, border=False,
+                                       no_scrollbar=True):
                     with dpg.collapsing_header(label="Solver",
                                                 default_open=True):
                         dpg.add_checkbox(label="Hartley Normalize",
@@ -1154,9 +1158,16 @@ if __name__ == "__main__":
                                               state, "use_hartley"),
                                           tag="cb_hartley")
 
+                dpg.add_spacer(width=8)
+
+                # Block 4: Mode-specific (Homography / Epipolar Geometry) ─────
+                with dpg.child_window(width=310, height=200, border=False,
+                                       no_scrollbar=True):
                     with dpg.collapsing_header(label="Homography",
                                                 default_open=True,
                                                 tag="grp_homography"):
+                        dpg.add_button(label="Pick point",
+                                       callback=_pick_random_point)
                         dpg.add_checkbox(label="Show Warp",
                                           default_value=state.show_warp,
                                           callback=make_state_updater(
@@ -1168,6 +1179,9 @@ if __name__ == "__main__":
                                 state, "decompose_H"),
                             tag="cb_decompose")
                         with create_parameter_table():
+                            dpg.add_table_column()
+                            dpg.add_table_column(width_fixed=True, init_width_or_weight=200)
+                            dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                             add_parameter_row(
                                 "λ (depth)", "lambda_val",
                                 DEFAULTS["lambda_val"], 0.5, 8.0,
@@ -1199,6 +1213,9 @@ if __name__ == "__main__":
                             callback=make_state_updater(
                                 state, "show_epipoles"))
                         with create_parameter_table():
+                            dpg.add_table_column()
+                            dpg.add_table_column(width_fixed=True, init_width_or_weight=200)
+                            dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                             add_parameter_row(
                                 "Highlight pt", "highlight_idx",
                                 DEFAULTS["highlight_idx"], 0, 35,
@@ -1208,6 +1225,11 @@ if __name__ == "__main__":
                                                     DEFAULTS["highlight_idx"]),
                                 slider_type="int", width=200, format_str="%d")
 
+                dpg.add_spacer(width=8)
+
+                # Block 5: Inspect ────────────────────────────────────────────
+                with dpg.child_window(width=240, height=200, border=False,
+                                       no_scrollbar=True):
                     with dpg.collapsing_header(label="Inspect",
                                                 default_open=False):
                         dpg.add_checkbox(

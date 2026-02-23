@@ -765,6 +765,69 @@ def create_default_scene():
 
 
 # =============================================================================
+# Ray Casting
+# =============================================================================
+
+def raycast_scene(scene, K, Rt, px, py, img_h, flip_y=True):
+    """Ray-cast from a camera through pixel (px, py) into a mesh scene.
+
+    Args:
+        scene: list of mesh dicts with 'vertices' and 'faces'
+        K: (3,3) intrinsic matrix
+        Rt: (3,4) extrinsic matrix [R | t]
+        px, py: pixel coordinates (image space, origin top-left)
+        img_h: image height in pixels
+        flip_y: if True, invert py before unprojecting (matches render_scene flip_y=True)
+
+    Returns:
+        z-depth (camera-space z) of nearest intersection, or None if no hit
+    """
+    py_cam = (img_h - 1 - py) if flip_y else py
+    fx, fy = K[0, 0], K[1, 1]
+    cx, cy = K[0, 2], K[1, 2]
+    ray_cam = np.array([(px - cx) / fx, (py_cam - cy) / fy, 1.0])
+
+    R = Rt[:, :3]
+    t = Rt[:, 3]
+    cam_pos = -R.T @ t
+    ray_world = R.T @ ray_cam
+    ray_world /= np.linalg.norm(ray_world)
+
+    best_t = np.inf
+    for mesh in scene:
+        verts = mesh["vertices"]
+        for face in mesh["faces"]:
+            for i in range(1, len(face) - 1):
+                v0 = verts[face[0]]
+                v1 = verts[face[i]]
+                v2 = verts[face[i + 1]]
+                e1 = v1 - v0
+                e2 = v2 - v0
+                h = np.cross(ray_world, e2)
+                a = e1 @ h
+                if abs(a) < 1e-8:
+                    continue
+                f = 1.0 / a
+                s = cam_pos - v0
+                u = f * (s @ h)
+                if u < 0 or u > 1:
+                    continue
+                q = np.cross(s, e1)
+                v = f * (ray_world @ q)
+                if v < 0 or u + v > 1:
+                    continue
+                t_hit = f * (e2 @ q)
+                if 1e-4 < t_hit < best_t:
+                    best_t = t_hit
+
+    if best_t == np.inf:
+        return None
+    hit_world = cam_pos + best_t * ray_world
+    hit_cam = R @ hit_world + t
+    return float(hit_cam[2])
+
+
+# =============================================================================
 # Matrix Formatting
 # =============================================================================
 
