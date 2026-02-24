@@ -12,7 +12,10 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
-from utils.demo_ui import add_global_controls, load_fonts, setup_viewport, make_state_updater
+from utils.demo_ui import (
+    add_global_controls, load_fonts, setup_viewport, make_state_updater,
+    poll_collapsible_panels,
+)
 
 # Default values
 DEFAULTS = {
@@ -212,6 +215,7 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
         if not state.pause:
             img = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
 

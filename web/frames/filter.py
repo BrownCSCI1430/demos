@@ -132,7 +132,7 @@ WEB_CONFIG = {
             "default": 1.0, "label": "Sigma",
             "visible_when": {"kernel_type": list(SIGMA_KERNELS)},
         },
-        "normalize": {
+        "normalize_kernel": {
             "group": "Kernel",
             "type": "bool", "default": True, "label": "Normalize",
         },
@@ -193,7 +193,7 @@ def web_frame(state):
 
     # Apply filter
     kernel = _kernel_values.copy()
-    normalize = state["normalize"]
+    normalize = state["normalize_kernel"]
     if normalize and _kernel_type not in ZERO_DC_KERNELS and kernel.sum() != 0:
         kernel = kernel / kernel.sum()
     kernel = kernel.astype(np.float32)

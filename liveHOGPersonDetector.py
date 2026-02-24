@@ -14,6 +14,7 @@ from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image
 from utils.demo_ui import (
     load_fonts, setup_viewport, make_state_updater, make_reset_callback,
     add_global_controls, control_panel, create_parameter_table, add_parameter_row,
+    poll_collapsible_panels,
 )
 
 # Default values
@@ -145,24 +146,21 @@ def main():
                     tag="show_boxes_checkbox",
                 )
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "Win Stride", "win_stride_slider", DEFAULTS["win_stride"],
                         4, 16, make_state_updater(state, "win_stride"),
                         make_reset_callback(state, "win_stride", "win_stride_slider", DEFAULTS["win_stride"]),
-                        slider_type="int", width=80)
+                        slider_type="int")
                     add_parameter_row(
                         "Scale", "scale_slider", DEFAULTS["scale"],
                         1.01, 1.5, make_state_updater(state, "scale"),
                         make_reset_callback(state, "scale", "scale_slider", DEFAULTS["scale"]),
-                        format_str="%.2f", width=80)
+                        format_str="%.2f")
                     add_parameter_row(
                         "Hit Threshold", "hit_threshold_slider", DEFAULTS["hit_threshold"],
                         0.0, 1.0, make_state_updater(state, "hit_threshold"),
                         make_reset_callback(state, "hit_threshold", "hit_threshold_slider", DEFAULTS["hit_threshold"]),
-                        format_str="%.2f", width=80)
+                        format_str="%.2f")
 
         dpg.add_separator()
         dpg.add_text("", tag="status_text")
@@ -180,6 +178,7 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
         if not state.pause:
             frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode,
                               (state.frame_width, state.frame_height))

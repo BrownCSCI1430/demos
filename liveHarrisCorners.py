@@ -15,6 +15,7 @@ from utils.demo_utils import (convert_cv_to_dpg, init_camera, load_fallback_imag
 from utils.demo_ui import (
     load_fonts, setup_viewport, make_state_updater, make_reset_callback,
     add_global_controls, control_panel, create_parameter_table, add_parameter_row,
+    poll_collapsible_panels,
 )
 
 # Default values
@@ -181,29 +182,26 @@ def main():
             with control_panel("Harris Detection", width=250, height=160,
                                color=(150, 200, 255)):
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "Block Size", "block_size_slider", DEFAULTS["block_size"],
                         2, 10, make_state_updater(state, "block_size"),
                         make_reset_callback(state, "block_size", "block_size_slider", DEFAULTS["block_size"]),
-                        slider_type="int", width=80)
+                        slider_type="int")
                     add_parameter_row(
                         "Sobel K", "ksize_slider", DEFAULTS["ksize"],
                         3, 31, update_ksize,
                         make_reset_callback(state, "ksize", "ksize_slider", DEFAULTS["ksize"]),
-                        slider_type="int", width=80)
+                        slider_type="int")
                     add_parameter_row(
                         "Harris k", "k_slider", DEFAULTS["k"],
                         0.01, 0.3, make_state_updater(state, "k"),
                         make_reset_callback(state, "k", "k_slider", DEFAULTS["k"]),
-                        format_str="%.3f", width=80)
+                        format_str="%.3f")
                     add_parameter_row(
                         "Threshold", "threshold_slider", DEFAULTS["threshold"],
                         0.001, 0.1, make_state_updater(state, "threshold"),
                         make_reset_callback(state, "threshold", "threshold_slider", DEFAULTS["threshold"]),
-                        format_str="%.4f", width=80)
+                        format_str="%.4f")
 
             dpg.add_spacer(width=10)
 
@@ -211,29 +209,26 @@ def main():
             with control_panel("Transforms", width=300, height=160,
                                color=(220, 180, 100)):
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "Rotate", "rotation_slider", DEFAULTS["rotation"],
                         -180.0, 180.0, make_state_updater(state, "rotation"),
                         make_reset_callback(state, "rotation", "rotation_slider", DEFAULTS["rotation"]),
-                        format_str="%.1f", width=80)
+                        format_str="%.1f")
                     add_parameter_row(
                         "Scale", "scale_slider", DEFAULTS["scale"],
                         0.25, 4.0, make_state_updater(state, "scale"),
                         make_reset_callback(state, "scale", "scale_slider", DEFAULTS["scale"]),
-                        format_str="%.2f", width=80)
+                        format_str="%.2f")
                     add_parameter_row(
                         "Translate X", "translate_x_slider", DEFAULTS["translate_x"],
                         -50.0, 50.0, make_state_updater(state, "translate_x"),
                         reset_translate,
-                        format_str="%.1f", width=80)
+                        format_str="%.1f")
                     add_parameter_row(
                         "Translate Y", "translate_y_slider", DEFAULTS["translate_y"],
                         -50.0, 50.0, make_state_updater(state, "translate_y"),
                         reset_translate,
-                        format_str="%.1f", width=80)
+                        format_str="%.1f")
 
             dpg.add_spacer(width=10)
 
@@ -241,19 +236,16 @@ def main():
             with control_panel("Brightness", width=250, height=160,
                                color=(150, 255, 150)):
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "Scale", "brightness_scale_slider", DEFAULTS["brightness_scale"],
                         0.5, 2.0, make_state_updater(state, "brightness_scale"),
                         reset_brightness,
-                        format_str="%.2f", width=80)
+                        format_str="%.2f")
                     add_parameter_row(
                         "Shift", "brightness_shift_slider", DEFAULTS["brightness_shift"],
                         -100.0, 100.0, make_state_updater(state, "brightness_shift"),
                         reset_brightness,
-                        format_str="%.1f", width=80)
+                        format_str="%.1f")
 
         dpg.add_separator()
         dpg.add_text("", tag="status_text")
@@ -278,6 +270,7 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
         # Get frame
         img = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode,
                         (state.frame_width, state.frame_height))

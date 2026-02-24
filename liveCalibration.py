@@ -45,6 +45,7 @@ from utils.demo_ui import (
     create_parameter_table, add_parameter_row,
     load_fonts, bind_mono_font,
     add_global_controls, control_panel,
+    poll_collapsible_panels,
 )
 
 
@@ -609,22 +610,19 @@ def main():
             with control_panel("Input Data", width=290, height=170,
                                color=(255, 200, 100)):
                 with create_parameter_table():
-                    dpg.add_table_column()  # label (auto-fit)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
                     add_parameter_row(
                         "Noise (px)", "noise_px_slider",
                         DEFAULTS["noise_px"], 0.0, 20.0,
                         make_state_updater(state, "noise_px"),
                         make_reset_callback(state, "noise_px", "noise_px_slider", DEFAULTS["noise_px"]),
-                        format_str="%.1f", width=140,
+                        format_str="%.1f",
                     )
                     add_parameter_row(
                         "N points", "n_points_slider",
                         DEFAULTS["n_points"], 6, npts_max,
                         make_state_updater(state, "n_points"),
                         make_reset_callback(state, "n_points", "n_points_slider", DEFAULTS["n_points"]),
-                        slider_type="int", width=140,
+                        slider_type="int",
                     )
                 dpg.add_checkbox(
                     label="Coplanar (z=const)",
@@ -653,22 +651,19 @@ def main():
             with control_panel("3D Coordinate Shift/Scale", width=330, height=170,
                                color=(220, 180, 100)):
                 with create_parameter_table():
-                    dpg.add_table_column()  # label (auto-fit)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
                     add_parameter_row(
                         "Shift 10\u207f", "offset_exp_slider",
                         DEFAULTS["offset_exp"], 0, 8,
                         make_state_updater(state, "offset_exp"),
                         make_reset_callback(state, "offset_exp", "offset_exp_slider", DEFAULTS["offset_exp"]),
-                        slider_type="int", width=140,
+                        slider_type="int",
                     )
                     add_parameter_row(
                         "Scale 10\u207f", "scale_exp_slider",
                         DEFAULTS["scale_exp"], 0, 6,
                         make_state_updater(state, "scale_exp"),
                         make_reset_callback(state, "scale_exp", "scale_exp_slider", DEFAULTS["scale_exp"]),
-                        slider_type="int", width=140,
+                        slider_type="int",
                     )
                 dpg.add_text(
                     "\u2191 Increase these, then normalize!",
@@ -726,6 +721,7 @@ def main():
 
     # ── Main render loop ──────────────────────────────────────────────────────
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
         # ── Point selection ──────────────────────────────────────────────────
         # Coplanar mode needs unique-(x,y) representatives so that collapsing z
         # doesn't create duplicate 3D points (which would make N look wrong).

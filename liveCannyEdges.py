@@ -14,6 +14,7 @@ from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image
 from utils.demo_ui import (
     add_global_controls, load_fonts, setup_viewport, make_state_updater,
     make_reset_callback, control_panel, create_parameter_table, add_parameter_row,
+    poll_collapsible_panels,
 )
 
 # Default values
@@ -176,24 +177,21 @@ def main():
             with control_panel("Edge Detection", width=350, height=140,
                                color=(150, 200, 255)):
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "Blur Sigma", "blur_sigma_slider", DEFAULTS["blur_sigma"],
                         0.1, 10.0, make_state_updater(state, "blur_sigma"),
                         make_reset_callback(state, "blur_sigma", "blur_sigma_slider", DEFAULTS["blur_sigma"]),
-                        format_str="%.1f", width=100)
+                        format_str="%.1f")
                     add_parameter_row(
                         "Canny Low", "canny_thresh_low_slider", DEFAULTS["canny_thresh_low"],
                         1, 255, update_canny_low,
                         make_reset_callback(state, "canny_thresh_low", "canny_thresh_low_slider", DEFAULTS["canny_thresh_low"]),
-                        slider_type="int", width=100)
+                        slider_type="int")
                     add_parameter_row(
                         "Canny High", "canny_thresh_high_slider", DEFAULTS["canny_thresh_high"],
                         1, 255, update_canny_high,
                         make_reset_callback(state, "canny_thresh_high", "canny_thresh_high_slider", DEFAULTS["canny_thresh_high"]),
-                        slider_type="int", width=100)
+                        slider_type="int")
 
         dpg.add_separator()
         dpg.add_text("", tag="status_text")
@@ -217,6 +215,7 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
         if not state.pause:
             gray, canny = process_frame()
 

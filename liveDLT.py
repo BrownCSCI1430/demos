@@ -814,6 +814,7 @@ if __name__ == "__main__":
         setup_viewport, make_state_updater, make_reset_callback,
         create_parameter_table, add_parameter_row, add_parameter_spacer_row,
         load_fonts, bind_mono_font, add_global_controls, control_panel,
+        poll_collapsible_panels,
     )
 
     # ── Defaults ───────────────────────────────────────────────────────
@@ -1109,9 +1110,6 @@ if __name__ == "__main__":
                 with control_panel("Input Data", width=270, height=200,
                                    color=(255, 200, 100)):
                     with create_parameter_table():
-                            dpg.add_table_column()
-                            dpg.add_table_column(width_fixed=True, init_width_or_weight=200)
-                            dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                             add_parameter_row(
                                 "Noise (px)", "noise_px_slider", DEFAULTS["noise_px"],
                                 0.0, 15.0,
@@ -1119,7 +1117,7 @@ if __name__ == "__main__":
                                 make_reset_callback(state, "noise_px",
                                                     "noise_px_slider",
                                                     DEFAULTS["noise_px"]),
-                                slider_type="float", width=200, format_str="%.1f")
+                                slider_type="float", format_str="%.1f")
                             add_parameter_row(
                                 "# Points", "n_points_slider", DEFAULTS["n_points"],
                                 4, 36,
@@ -1127,7 +1125,7 @@ if __name__ == "__main__":
                                 make_reset_callback(state, "n_points",
                                                     "n_points_slider",
                                                     DEFAULTS["n_points"]),
-                                slider_type="int", width=200, format_str="%d")
+                                slider_type="int", format_str="%d")
 
                 dpg.add_spacer(width=8)
 
@@ -1162,9 +1160,6 @@ if __name__ == "__main__":
                                 state, "decompose_H"),
                             tag="decompose_H_checkbox")
                         with create_parameter_table():
-                            dpg.add_table_column()
-                            dpg.add_table_column(width_fixed=True, init_width_or_weight=200)
-                            dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                             add_parameter_row(
                                 "λ (depth)", "lambda_val_slider",
                                 DEFAULTS["lambda_val"], 0.5, 8.0,
@@ -1172,7 +1167,7 @@ if __name__ == "__main__":
                                 make_reset_callback(state, "lambda_val",
                                                     "lambda_val_slider",
                                                     DEFAULTS["lambda_val"]),
-                                slider_type="float", width=200, format_str="%.2f")
+                                slider_type="float", format_str="%.2f")
                             add_parameter_row(
                                 "Epipole coeff", "epipole_coeff_slider",
                                 DEFAULTS["epipole_coeff"], 0.0, 2.0,
@@ -1180,7 +1175,7 @@ if __name__ == "__main__":
                                 make_reset_callback(state, "epipole_coeff",
                                                     "epipole_coeff_slider",
                                                     DEFAULTS["epipole_coeff"]),
-                                slider_type="float", width=200, format_str="%.2f")
+                                slider_type="float", format_str="%.2f")
 
                     with dpg.collapsing_header(label="Epipolar Geometry",
                                                 default_open=True,
@@ -1198,9 +1193,6 @@ if __name__ == "__main__":
                                 state, "show_epipoles"),
                             tag="show_epipoles_checkbox")
                         with create_parameter_table():
-                            dpg.add_table_column()
-                            dpg.add_table_column(width_fixed=True, init_width_or_weight=200)
-                            dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                             add_parameter_row(
                                 "Highlight pt", "highlight_idx_slider",
                                 DEFAULTS["highlight_idx"], 0, 35,
@@ -1208,7 +1200,7 @@ if __name__ == "__main__":
                                 make_reset_callback(state, "highlight_idx",
                                                     "highlight_idx_slider",
                                                     DEFAULTS["highlight_idx"]),
-                                slider_type="int", width=200, format_str="%d")
+                                slider_type="int", format_str="%d")
 
                 dpg.add_spacer(width=8)
 
@@ -1256,6 +1248,7 @@ if __name__ == "__main__":
                        lambda: None, DEFAULTS["ui_scale"])
 
         while dpg.is_dearpygui_running():
+            poll_collapsible_panels()
             # Toggle visibility based on mode
             is_h = state.mode == "Homography"
             dpg.configure_item("grp_homography", show=is_h)

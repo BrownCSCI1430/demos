@@ -23,6 +23,7 @@ from utils.demo_ui import (
     setup_viewport, make_state_updater, make_reset_callback,
     create_parameter_table, add_parameter_row,
     add_global_controls, control_panel,
+    poll_collapsible_panels,
 )
 
 
@@ -344,10 +345,6 @@ def main():
             with control_panel("Projection to Pixels", width=360, height=280,
                                color=(150, 200, 255)):
                 with create_parameter_table():
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
-
                         add_parameter_row("img_w (px)", "img_w_slider", DEFAULTS["img_w"],
                                           100, 800,
                                           make_state_updater(state, "img_w"),
@@ -380,10 +377,6 @@ def main():
             with control_panel("Physical Camera", width=360, height=310,
                                color=(220, 180, 100)):
                 with create_parameter_table():
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
-
                         add_parameter_row("f (mm)", "focal_length_slider", DEFAULTS["focal_length"],
                                           5.0, 200.0,
                                           make_state_updater(state, "focal_length"),
@@ -410,10 +403,6 @@ def main():
             with control_panel("Extrinsic [R|t]", width=360, height=280,
                                color=(150, 255, 150)):
                 with create_parameter_table():
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
-
                         add_parameter_row("Rot X (rad)", "rot_x_slider", DEFAULTS["rot_x"],
                                           -np.pi, np.pi,
                                           make_state_updater(state, "rot_x"),
@@ -482,6 +471,7 @@ def main():
 
     # === Main loop ===
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
         # Dynamic image resolution
         iw, ih = int(state.img_w), int(state.img_h)
 

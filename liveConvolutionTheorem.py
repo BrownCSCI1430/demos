@@ -18,6 +18,7 @@ from utils.demo_utils import init_camera, load_fallback_image, convert_cv_to_dpg
 from utils.demo_ui import (
     load_fonts, setup_viewport, make_state_updater, make_reset_callback,
     add_global_controls, control_panel, create_parameter_table, add_parameter_row,
+    poll_collapsible_panels,
 )
 from utils.demo_kernels import create_kernel, pad_kernel_to_image_size, create_gaussian_kernel_fft, visualize_kernel
 from utils.demo_fft import visualize_fft_amplitude, process_convolution, process_deconvolution
@@ -281,19 +282,16 @@ def main():
                 dpg.add_combo(tag="kernel_type_combo", items=KERNELS, default_value=state.kernel_type,
                               callback=update_kernel_type, width=150, label="Type")
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "Kernel Size", "kernel_size_slider", DEFAULTS["kernel_size"],
                         3, 51, update_kernel_size,
                         make_reset_callback(state, "kernel_size", "kernel_size_slider", DEFAULTS["kernel_size"]),
-                        slider_type="int", width=80)
+                        slider_type="int")
                     add_parameter_row(
                         "Gaussian Sigma", "gaussian_sigma_slider", DEFAULTS["gaussian_sigma"],
                         0.1, 15.0, make_state_updater(state, "gaussian_sigma"),
                         make_reset_callback(state, "gaussian_sigma", "gaussian_sigma_slider", DEFAULTS["gaussian_sigma"]),
-                        format_str="%.1f", width=80)
+                        format_str="%.1f")
                 dpg.add_button(label="Regenerate Random Kernel", callback=regenerate_random_kernel,
                                tag="randomize_button", show=(state.kernel_type == "Random"))
 
@@ -306,14 +304,11 @@ def main():
                                  default_value=state.use_regularization,
                                  callback=make_state_updater(state, "use_regularization"))
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "Reg. Value", "regularization_slider", DEFAULTS["regularization"],
                         0.0001, 0.5, make_state_updater(state, "regularization"),
                         make_reset_callback(state, "regularization", "regularization_slider", DEFAULTS["regularization"]),
-                        format_str="%.4f", width=80)
+                        format_str="%.4f")
             dpg.configure_item("regularization_panel", show=False)
 
         dpg.add_separator()
@@ -379,6 +374,7 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
         if not state.pause:
             frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
             if frame is not None:

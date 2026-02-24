@@ -14,6 +14,7 @@ from utils.demo_utils import init_camera, load_fallback_image, convert_cv_to_dpg
 from utils.demo_ui import (
     load_fonts, setup_viewport, make_state_updater, make_reset_callback,
     add_global_controls, control_panel, create_parameter_table, add_parameter_row,
+    poll_collapsible_panels,
 )
 
 # Default values
@@ -313,19 +314,16 @@ def main():
             with control_panel("Input Intensity [0,1]", width=300, height=130,
                                color=(150, 200, 255)):
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "Shift I", "intensity_shift_slider", DEFAULTS["intensity_shift"],
                         -1.0, 1.0, make_state_updater(state, "intensity_shift"),
                         make_reset_callback(state, "intensity_shift", "intensity_shift_slider", DEFAULTS["intensity_shift"]),
-                        format_str="%.2f", width=60)
+                        format_str="%.2f")
                     add_parameter_row(
                         "Scale I", "intensity_scale_slider", DEFAULTS["intensity_scale"],
                         0.0, 3.0, make_state_updater(state, "intensity_scale"),
                         make_reset_callback(state, "intensity_scale", "intensity_scale_slider", DEFAULTS["intensity_scale"]),
-                        format_str="%.2f", width=60)
+                        format_str="%.2f")
 
             dpg.add_spacer(width=10)
 
@@ -333,29 +331,26 @@ def main():
             with control_panel("Input 2D Transforms", width=320, height=160,
                                color=(220, 180, 100)):
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "Rotate x,y", "image_rotation_slider", DEFAULTS["image_rotation"],
                         -180.0, 180.0, make_state_updater(state, "image_rotation"),
                         make_reset_callback(state, "image_rotation", "image_rotation_slider", DEFAULTS["image_rotation"]),
-                        format_str="%.1f", width=60)
+                        format_str="%.1f")
                     add_parameter_row(
                         "Scale x,y", "image_scale_slider", DEFAULTS["image_scale"],
                         0.25, 4.0, make_state_updater(state, "image_scale"),
                         make_reset_callback(state, "image_scale", "image_scale_slider", DEFAULTS["image_scale"]),
-                        format_str="%.2f", width=60)
+                        format_str="%.2f")
                     add_parameter_row(
                         "Translate x", "image_translate_x_slider", DEFAULTS["image_translate_x"],
                         -100.0, 100.0, make_state_updater(state, "image_translate_x"),
                         make_reset_callback(state, "image_translate_x", "image_translate_x_slider", DEFAULTS["image_translate_x"]),
-                        format_str="%.1f", width=60)
+                        format_str="%.1f")
                     add_parameter_row(
                         "Translate y", "image_translate_y_slider", DEFAULTS["image_translate_y"],
                         -100.0, 100.0, make_state_updater(state, "image_translate_y"),
                         make_reset_callback(state, "image_translate_y", "image_translate_y_slider", DEFAULTS["image_translate_y"]),
-                        format_str="%.1f", width=60)
+                        format_str="%.1f")
 
             dpg.add_spacer(width=10)
 
@@ -363,24 +358,21 @@ def main():
             with control_panel("Fourier Parameters", width=460, height=160,
                                color=(150, 255, 150)):
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "DC Shift", "dc_shift_slider", DEFAULTS["dc_shift"],
                         -1.0, 1.0, make_state_updater(state, "dc_shift"),
                         make_reset_callback(state, "dc_shift", "dc_shift_slider", DEFAULTS["dc_shift"]),
-                        format_str="%.2f", width=60)
+                        format_str="%.2f")
                     add_parameter_row(
                         "Amplitude Scale (no DC)", "amplitude_scalar_slider", DEFAULTS["amplitude_scalar"],
                         0.1, 5.0, make_state_updater(state, "amplitude_scalar"),
                         make_reset_callback(state, "amplitude_scalar", "amplitude_scalar_slider", DEFAULTS["amplitude_scalar"]),
-                        format_str="%.2f", width=60)
+                        format_str="%.2f")
                     add_parameter_row(
                         "Phase Offset", "phase_offset_slider", DEFAULTS["phase_offset"],
                         -3.14, 3.14, make_state_updater(state, "phase_offset"),
                         make_reset_callback(state, "phase_offset", "phase_offset_slider", DEFAULTS["phase_offset"]),
-                        format_str="%.2f", width=60)
+                        format_str="%.2f")
                 dpg.add_checkbox(label="Zero DC", default_value=state.dc_zero,
                                callback=make_state_updater(state, "dc_zero"))
 
@@ -425,6 +417,7 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
         if not state.pause:
             frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
             if frame is not None:

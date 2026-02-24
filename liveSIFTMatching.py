@@ -15,6 +15,7 @@ from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image
 from utils.demo_ui import (
     load_fonts, setup_viewport, make_state_updater, make_reset_callback,
     add_global_controls, control_panel, create_parameter_table, add_parameter_row,
+    poll_collapsible_panels,
 )
 
 # Default values
@@ -256,14 +257,11 @@ def main():
                     width=150
                 )
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "Distance Ratio", "match_distance_slider", DEFAULTS["match_distance"],
                         0.1, 1.0, make_state_updater(state, "match_distance"),
                         make_reset_callback(state, "match_distance", "match_distance_slider", DEFAULTS["match_distance"]),
-                        format_str="%.2f", width=120)
+                        format_str="%.2f")
                 dpg.add_checkbox(
                     label="Show Matches",
                     default_value=state.show_matches,
@@ -285,6 +283,7 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
         # Recreate texture when query image changes
         if state.texture_needs_recreate:
             # Validate texture dimensions before recreating

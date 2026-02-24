@@ -16,6 +16,7 @@ from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image
 from utils.demo_ui import (
     load_fonts, setup_viewport, make_state_updater, add_global_controls, make_reset_callback,
     control_panel, create_parameter_table, add_parameter_row,
+    poll_collapsible_panels,
 )
 from utils.demo_kernels import KERNEL_PRESETS as _KERNEL_PRESETS, SIGMA_KERNELS, ZERO_DC_KERNELS, create_kernel, resize_kernel
 
@@ -410,14 +411,11 @@ def main():
                     width=150
                 )
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                     add_parameter_row(
                         "Size", "kernel_size_slider", DEFAULTS["kernel_size"],
                         3, 15, update_kernel_size,
                         make_reset_callback(state, "kernel_size", "kernel_size_slider", DEFAULTS["kernel_size"]),
-                        slider_type="int", width=80)
+                        slider_type="int")
                 dpg.add_slider_float(
                     label="Sigma",
                     default_value=state.gaussian_sigma,
@@ -476,6 +474,7 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
         # Handle mouse interaction with kernel editor
         if dpg.does_item_exist("kernel_drawlist"):
             mouse_pos = dpg.get_mouse_pos(local=False)

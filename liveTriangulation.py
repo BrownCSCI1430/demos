@@ -42,6 +42,7 @@ from utils.demo_ui import (
     load_fonts, bind_mono_font,
     setup_viewport,
     add_global_controls, control_panel,
+    poll_collapsible_panels,
 )
 
 
@@ -395,6 +396,7 @@ def main():
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
         handle_clicks()
 
         # Compute epipolar line in right view if left clicked

@@ -37,6 +37,7 @@ from utils.demo_ui import (
     load_fonts, setup_viewport, make_state_updater, make_reset_callback,
     create_parameter_table, add_parameter_row,
     add_global_controls, bind_mono_font, control_panel,
+    poll_collapsible_panels,
 )
 
 
@@ -681,11 +682,6 @@ def main():
                                   callback=on_preset_selected,
                                   tag="preset_combo", width=230)
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True,
-                                         init_width_or_weight=240)
-                    dpg.add_table_column(width_fixed=True,
-                                         init_width_or_weight=24)
                     add_parameter_row(
                         "Baseline", "cam_baseline_slider",
                         DEFAULTS["cam_baseline"], 0.0, 5.0,
@@ -693,7 +689,7 @@ def main():
                         make_reset_callback(state, "cam_baseline",
                                             "cam_baseline_slider",
                                             DEFAULTS["cam_baseline"]),
-                        format_str="%.2f", width=240)
+                        format_str="%.2f")
                     add_parameter_row(
                         "Convergence", "cam_convergence_slider",
                         DEFAULTS["cam_convergence"], 0.0, 1.0,
@@ -701,7 +697,7 @@ def main():
                         make_reset_callback(state, "cam_convergence",
                                             "cam_convergence_slider",
                                             DEFAULTS["cam_convergence"]),
-                        format_str="%.2f", width=240)
+                        format_str="%.2f")
                     add_parameter_row(
                         "Other cam Z", "cam_distance_slider",
                         DEFAULTS["cam_distance"], 1.0, 8.0,
@@ -709,7 +705,7 @@ def main():
                         make_reset_callback(state, "cam_distance",
                                             "cam_distance_slider",
                                             DEFAULTS["cam_distance"]),
-                        format_str="%.1f", width=240)
+                        format_str="%.1f")
 
             dpg.add_spacer(width=8)
 
@@ -718,18 +714,13 @@ def main():
                                color=(220, 180, 100), tag="sweep_panel",
                                default_open=True):
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True,
-                                         init_width_or_weight=240)
-                    dpg.add_table_column(width_fixed=True,
-                                         init_width_or_weight=24)
                     add_parameter_row(
                         "\u03bb", "lam_slider",
                         DEFAULTS["lam"], LAM_MIN, LAM_MAX,
                         make_state_updater(state, "lam"),
                         make_reset_callback(state, "lam", "lam_slider",
                                             DEFAULTS["lam"]),
-                        format_str="%.2f", width=240)
+                        format_str="%.2f")
                 with dpg.group(horizontal=True):
                     dpg.add_text("NCC patch")
                     dpg.add_slider_int(
@@ -763,11 +754,6 @@ def main():
                     label="Homography warp", default_value=True,
                     callback=lambda s, v: setattr(state, 'show_rectify', v))
                 with create_parameter_table():
-                    dpg.add_table_column()
-                    dpg.add_table_column(width_fixed=True,
-                                         init_width_or_weight=180)
-                    dpg.add_table_column(width_fixed=True,
-                                         init_width_or_weight=24)
                     add_parameter_row(
                         "Epipole \u03b1", "epipole_weight_slider",
                         DEFAULTS["epipole_weight"], 0.0, 1.0,
@@ -775,7 +761,7 @@ def main():
                         make_reset_callback(state, "epipole_weight",
                                             "epipole_weight_slider",
                                             DEFAULTS["epipole_weight"]),
-                        format_str="%.2f", width=180)
+                        format_str="%.2f")
 
         dpg.add_separator()
 
@@ -881,6 +867,7 @@ def main():
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     while dpg.is_dearpygui_running():
+        poll_collapsible_panels()
 
         # ── Camera param change ──────────────────────────────────────────────
         cam_changed = (

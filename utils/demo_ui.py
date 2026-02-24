@@ -215,6 +215,30 @@ def make_reset_all_callback(defaults, state, extra_reset=None):
 
 _panel_themes = {}  # cache: RGB tuple → DPG theme id
 
+# Poll-based collapse registry: {outer_id: (hdr_id, expanded_h, prev_open)}
+_panel_registry = {}
+_COLLAPSED_H = 48   # header bar + outer window padding (px at default font scale)
+_PANEL_PAD = 20      # extra px added to caller's height for header/padding overhead
+
+
+def poll_collapsible_panels():
+    """Poll collapsible panel headers and resize their containers.
+
+    Call once per frame in the render loop.  DPG/ImGui does not re-layout
+    parent containers when a nested collapsing_header toggles, so we check
+    each header's open/closed state every frame and adjust the outer
+    child_window height manually.
+    """
+    for outer_id, (hdr_id, expanded_h, prev_open) in _panel_registry.items():
+        try:
+            is_open = dpg.get_value(hdr_id)
+        except Exception:
+            continue
+        if is_open != prev_open:
+            _panel_registry[outer_id] = (hdr_id, expanded_h, is_open)
+            dpg.configure_item(
+                outer_id, height=expanded_h if is_open else _COLLAPSED_H)
+
 
 def _get_header_theme(color):
     """Get or create a DPG theme for a collapsing_header with colored text."""
@@ -231,12 +255,15 @@ def _get_header_theme(color):
 @contextlib.contextmanager
 def control_panel(label, width=0, height=0, color=None,
                   default_open=True, tag=None, border=True):
-    """Collapsible control panel with colored title and optional scroll.
+    """Collapsible control panel with colored title.
 
-    Combines three DPG widgets:
-      outer child_window (size + border) →
-        collapsing_header (collapse/expand + themed text color) →
-          inner child_window (scrollbar when content overflows)
+    Combines two DPG widgets:
+      outer child_window (size + border + no_scrollbar) →
+        collapsing_header (collapse/expand + themed text color)
+
+    When height > 0 the panel is registered for poll-based collapse:
+    poll_collapsible_panels() checks each header's open/closed state
+    every frame and resizes the outer child_window accordingly.
 
     Args:
         label:        Panel title text on the collapsing header.
@@ -252,19 +279,22 @@ def control_panel(label, width=0, height=0, color=None,
     Yields:
         The collapsing_header DPG id.
     """
+    actual_h = height + _PANEL_PAD if height > 0 else 0
     outer_kw = {"width": width, "border": border, "no_scrollbar": True}
-    if height > 0:
-        outer_kw["height"] = height
+    if actual_h > 0:
+        outer_kw["height"] = actual_h
     if tag is not None:
         outer_kw["tag"] = tag
 
-    with dpg.child_window(**outer_kw):
+    with dpg.child_window(**outer_kw) as outer_id:
         with dpg.collapsing_header(label=label,
                                    default_open=default_open) as hdr:
             if color is not None:
                 dpg.bind_item_theme(hdr, _get_header_theme(color))
-            with dpg.child_window(border=False):
-                yield hdr
+            yield hdr
+        # Register for poll-based collapse/expand
+        if actual_h > 0:
+            _panel_registry[outer_id] = (hdr, actual_h, default_open)
 
 
 def add_global_controls(defaults, state, cat_mode_callback=None,
@@ -373,10 +403,11 @@ def add_guide_button(guide_steps, title="Guide"):
 
 
 def add_parameter_row(label, tag, default, min_val, max_val, callback,
-                      reset_callback, slider_type="float", width=80, format_str=None):
+                      reset_callback, slider_type="float", format_str=None,
+                      **kwargs):
     """Add a parameter row with label, slider, and reset button.
 
-    Must be called within a dpg.table context.
+    Must be called within a dpg.table context (created by create_parameter_table).
 
     Args:
         label: Text label for the parameter
@@ -387,21 +418,21 @@ def add_parameter_row(label, tag, default, min_val, max_val, callback,
         callback: Callback function when slider changes
         reset_callback: Callback function for reset button
         slider_type: "float" or "int"
-        width: Slider width in pixels
         format_str: Optional format string for float sliders (e.g., "%.2f")
+        **kwargs: Silently absorbs legacy keyword args (e.g. width).
     """
     with dpg.table_row():
         dpg.add_text(label)
         if slider_type == "float":
-            kwargs = {"format": format_str} if format_str else {}
+            fmt = {"format": format_str} if format_str else {}
             dpg.add_slider_float(
                 tag=tag,
                 default_value=default,
                 min_value=min_val,
                 max_value=max_val,
                 callback=callback,
-                width=width,
-                **kwargs
+                width=-1,
+                **fmt
             )
         else:
             dpg.add_slider_int(
@@ -410,7 +441,7 @@ def add_parameter_row(label, tag, default, min_val, max_val, callback,
                 min_value=min_val,
                 max_value=max_val,
                 callback=callback,
-                width=width
+                width=-1,
             )
         dpg.add_button(label="R", callback=reset_callback, width=25)
 
@@ -422,32 +453,31 @@ def add_parameter_spacer_row():
     Useful for filling out 2-column layouts.
     """
     with dpg.table_row():
-        dpg.add_spacer(width=80)
-        dpg.add_spacer(width=100)
-        dpg.add_spacer(width=30)
+        dpg.add_spacer()
+        dpg.add_spacer()
+        dpg.add_spacer()
 
 
+@contextlib.contextmanager
 def create_parameter_table():
-    """Create a borderless parameter table for controls.
+    """Create a 3-column parameter table (label | slider | reset).
 
-    Returns:
-        dpg.table context manager
-
-    Usage:
-        with create_parameter_table():
-            dpg.add_table_column()                                        # label (auto-fit)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=100)  # slider
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=30)   # reset
-            # Add rows...
+    The label column auto-fits to its text content.
+    The slider column stretches to fill remaining width.
+    The reset column is fixed at 30 px.
     """
-    return dpg.table(
+    with dpg.table(
         header_row=False,
         borders_innerV=False,
         borders_outerV=False,
         borders_innerH=False,
         borders_outerH=False,
-        policy=dpg.mvTable_SizingFixedFit
-    )
+        policy=dpg.mvTable_SizingFixedFit,
+    ):
+        dpg.add_table_column()                                             # label (auto-fit)
+        dpg.add_table_column(width_stretch=True)                           # slider (stretches)
+        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)   # reset
+        yield
 
 
 def setup_viewport(title, width, height, main_window_tag, resize_callback, ui_scale=1.5):
