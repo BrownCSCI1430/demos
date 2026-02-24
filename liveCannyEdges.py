@@ -7,18 +7,21 @@ This version: Dear PyGui sliders and toggles for interactive control
 """
 
 import cv2
-import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
-from utils.demo_ui import add_global_controls, load_fonts, setup_viewport, make_state_updater, make_reset_callback
+from utils.demo_ui import (
+    add_global_controls, load_fonts, setup_viewport, make_state_updater,
+    make_reset_callback, control_panel, create_parameter_table, add_parameter_row,
+)
 
 # Default values
 DEFAULTS = {
     "blur_sigma": 1.0,
     "canny_thresh_low": 10,
     "canny_thresh_high": 70,
+    "pause": False,
     "ui_scale": 1.5,
 }
 
@@ -43,8 +46,6 @@ GUIDE_CANNY = [
              "Try: low=10, high=70 (default) vs low=50, high=200 (strict)."},
 ]
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
 
 # Global state
 class State:
@@ -57,6 +58,7 @@ class State:
     input_ratio = 0.25  # Input image is 1/4 the size of canny image
     use_camera = True
     cat_mode = False
+    pause = False
     fallback_image = None
 
 
@@ -98,14 +100,14 @@ def update_canny_low(sender, value):
     state.canny_thresh_low = int(value)
     if state.canny_thresh_low > state.canny_thresh_high:
         state.canny_thresh_high = state.canny_thresh_low
-        dpg.set_value("canny_high_slider", state.canny_thresh_high)
+        dpg.set_value("canny_thresh_high_slider", state.canny_thresh_high)
 
 
 def update_canny_high(sender, value):
     state.canny_thresh_high = int(value)
     if state.canny_thresh_high < state.canny_thresh_low:
         state.canny_thresh_low = state.canny_thresh_high
-        dpg.set_value("canny_low_slider", state.canny_thresh_low)
+        dpg.set_value("canny_thresh_low_slider", state.canny_thresh_low)
 
 
 def process_frame():
@@ -160,58 +162,38 @@ def main():
     # Create main window
     with dpg.window(label="Canny Edge Detection Demo", tag="main_window"):
         # Global controls
-        def _extra_reset():
-            for tag, key in [("blur_slider", "blur_sigma"),
-                             ("canny_low_slider", "canny_thresh_low"),
-                             ("canny_high_slider", "canny_thresh_high")]:
-                if dpg.does_item_exist(tag):
-                    dpg.set_value(tag, DEFAULTS[key])
-
-        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"),
-                            reset_extra=_extra_reset,
-                            guide=GUIDE_CANNY, guide_title="Canny Edge Detection")
+        add_global_controls(
+            DEFAULTS, state,
+            cat_mode_callback=make_state_updater(state, "cat_mode"),
+            pause_callback=make_state_updater(state, "pause"),
+            guide=GUIDE_CANNY, guide_title="Canny Edge Detection",
+        )
 
         dpg.add_separator()
 
         # Edge Detection parameters
-        with dpg.collapsing_header(label="Edge Detection", default_open=True):
-            with dpg.table(header_row=False,
-                           borders_innerV=False, borders_outerV=False,
-                           borders_innerH=False, borders_outerH=False,
-                           policy=dpg.mvTable_SizingFixedFit):
-                dpg.add_table_column()  # label (auto-fit)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-                dpg.add_table_column()  # label (auto-fit)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-                with dpg.table_row():
-                    dpg.add_text("Blur Sigma")
-                    dpg.add_slider_float(tag="blur_slider", default_value=state.blur_sigma,
-                                         min_value=0.1, max_value=10.0,
-                                         callback=make_state_updater(state, "blur_sigma"),
-                                         width=100, format="%.1f")
-                    dpg.add_button(label="R",
-                                   callback=make_reset_callback(state, "blur_sigma", "blur_slider", DEFAULTS["blur_sigma"]),
-                                   width=25)
-                    dpg.add_text("Canny Low")
-                    dpg.add_slider_int(tag="canny_low_slider", default_value=state.canny_thresh_low,
-                                       min_value=1, max_value=255, callback=update_canny_low, width=100)
-                    dpg.add_button(label="R",
-                                   callback=make_reset_callback(state, "canny_thresh_low", "canny_low_slider", DEFAULTS["canny_thresh_low"]),
-                                   width=25)
-
-                with dpg.table_row():
-                    dpg.add_text("Canny High")
-                    dpg.add_slider_int(tag="canny_high_slider", default_value=state.canny_thresh_high,
-                                       min_value=1, max_value=255, callback=update_canny_high, width=100)
-                    dpg.add_button(label="R",
-                                   callback=make_reset_callback(state, "canny_thresh_high", "canny_high_slider", DEFAULTS["canny_thresh_high"]),
-                                   width=25)
-                    dpg.add_spacer(width=80)
-                    dpg.add_spacer(width=100)
-                    dpg.add_spacer(width=25)
+        with dpg.group(horizontal=True):
+            with control_panel("Edge Detection", width=350, height=140,
+                               color=(150, 200, 255)):
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Blur Sigma", "blur_sigma_slider", DEFAULTS["blur_sigma"],
+                        0.1, 10.0, make_state_updater(state, "blur_sigma"),
+                        make_reset_callback(state, "blur_sigma", "blur_sigma_slider", DEFAULTS["blur_sigma"]),
+                        format_str="%.1f", width=100)
+                    add_parameter_row(
+                        "Canny Low", "canny_thresh_low_slider", DEFAULTS["canny_thresh_low"],
+                        1, 255, update_canny_low,
+                        make_reset_callback(state, "canny_thresh_low", "canny_thresh_low_slider", DEFAULTS["canny_thresh_low"]),
+                        slider_type="int", width=100)
+                    add_parameter_row(
+                        "Canny High", "canny_thresh_high_slider", DEFAULTS["canny_thresh_high"],
+                        1, 255, update_canny_high,
+                        make_reset_callback(state, "canny_thresh_high", "canny_thresh_high_slider", DEFAULTS["canny_thresh_high"]),
+                        slider_type="int", width=100)
 
         dpg.add_separator()
         dpg.add_text("", tag="status_text")
@@ -235,14 +217,15 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
-        gray, canny = process_frame()
+        if not state.pause:
+            gray, canny = process_frame()
 
-        if gray is not None and canny is not None:
-            dpg.set_value("input_texture", convert_cv_to_dpg(gray))
-            dpg.set_value("canny_texture", convert_cv_to_dpg(canny))
+            if gray is not None and canny is not None:
+                dpg.set_value("input_texture", convert_cv_to_dpg(gray))
+                dpg.set_value("canny_texture", convert_cv_to_dpg(canny))
 
-            status = f"Blur Sigma: {state.blur_sigma:.1f}  |  Canny Low: {state.canny_thresh_low}  |  Canny High: {state.canny_thresh_high}"
-            dpg.set_value("status_text", status)
+                status = f"Blur Sigma: {state.blur_sigma:.1f}  |  Canny Low: {state.canny_thresh_low}  |  Canny High: {state.canny_thresh_high}"
+                dpg.set_value("status_text", status)
 
         dpg.render_dearpygui_frame()
 

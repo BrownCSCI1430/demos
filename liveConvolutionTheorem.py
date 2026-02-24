@@ -15,7 +15,10 @@ from skimage import img_as_float
 from skimage.color import rgb2gray
 
 from utils.demo_utils import init_camera, load_fallback_image, convert_cv_to_dpg_float, crop_to_square, get_frame
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback, add_global_controls
+from utils.demo_ui import (
+    load_fonts, setup_viewport, make_state_updater, make_reset_callback,
+    add_global_controls, control_panel, create_parameter_table, add_parameter_row,
+)
 from utils.demo_kernels import create_kernel, pad_kernel_to_image_size, create_gaussian_kernel_fft, visualize_kernel
 from utils.demo_fft import visualize_fft_amplitude, process_convolution, process_deconvolution
 
@@ -27,10 +30,10 @@ DEFAULTS = {
     "mode": "Convolution",
     "use_regularization": False,
     "regularization": 0.01,
+    "pause": False,
     "ui_scale": 1.5,
 }
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 GUIDE_CONV_THEOREM = [
     {"title": "The convolution theorem",
@@ -247,14 +250,7 @@ def main():
     with dpg.window(label="Convolution Theorem Demo", tag="main_window"):
         # Global controls row
         def _extra_reset():
-            if dpg.does_item_exist("kernel_combo"):
-                dpg.set_value("kernel_combo", DEFAULTS["kernel_type"])
-            if dpg.does_item_exist("mode_combo"):
-                dpg.set_value("mode_combo", DEFAULTS["mode"])
-                update_mode(None, DEFAULTS["mode"])
-            state.pause = False
-            if dpg.does_item_exist("pause_checkbox"):
-                dpg.set_value("pause_checkbox", False)
+            update_mode(None, DEFAULTS["mode"])
 
         add_global_controls(
             DEFAULTS, state,
@@ -266,73 +262,59 @@ def main():
 
         dpg.add_separator()
 
-        # Parameters using child_window containers
+        # Parameters
         with dpg.group(horizontal=True):
             # Mode selector
-            with dpg.child_window(width=160, height=160, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Mode", default_open=True):
-                    dpg.add_combo(
-                        label="Mode", items=["Convolution", "Deconvolution"],
-                        default_value=state.mode, callback=update_mode,
-                        tag="mode_combo", width=120,
-                    )
+            with control_panel("Mode", width=160, height=160,
+                               color=(255, 220, 100)):
+                dpg.add_combo(
+                    label="Mode", items=["Convolution", "Deconvolution"],
+                    default_value=state.mode, callback=update_mode,
+                    tag="mode_combo", width=120,
+                )
 
             dpg.add_spacer(width=10)
 
-            # Column 1: Kernel
-            with dpg.child_window(width=420, height=160, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Kernel", default_open=True):
-                    with dpg.table(header_row=False,
-                                   borders_innerV=False, borders_outerV=False,
-                                   borders_innerH=False, borders_outerH=False,
-                                   policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=120)
-
-                        with dpg.table_row():
-                            dpg.add_text("Kernel Type")
-                            dpg.add_combo(tag="kernel_combo", items=KERNELS, default_value=state.kernel_type,
-                                          callback=update_kernel_type, width=100)
-
-                        with dpg.table_row():
-                            dpg.add_text("Kernel Size")
-                            dpg.add_slider_int(tag="kernel_size_slider", default_value=state.kernel_size,
-                                               min_value=3, max_value=51, callback=update_kernel_size, width=100)
-
-                        with dpg.table_row():
-                            dpg.add_text("Gaussian Sigma")
-                            dpg.add_slider_float(tag="sigma_slider", default_value=state.gaussian_sigma,
-                                                 min_value=0.1, max_value=15.0,
-                                                 callback=make_state_updater(state, "gaussian_sigma"),
-                                                 width=100, format="%.1f")
-
-                    dpg.add_button(label="Regenerate Random Kernel", callback=regenerate_random_kernel,
-                                   tag="randomize_button", show=(state.kernel_type == "Random"))
+            # Kernel
+            with control_panel("Kernel", width=420, height=160,
+                               color=(150, 200, 255)):
+                dpg.add_combo(tag="kernel_type_combo", items=KERNELS, default_value=state.kernel_type,
+                              callback=update_kernel_type, width=150, label="Type")
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Kernel Size", "kernel_size_slider", DEFAULTS["kernel_size"],
+                        3, 51, update_kernel_size,
+                        make_reset_callback(state, "kernel_size", "kernel_size_slider", DEFAULTS["kernel_size"]),
+                        slider_type="int", width=80)
+                    add_parameter_row(
+                        "Gaussian Sigma", "gaussian_sigma_slider", DEFAULTS["gaussian_sigma"],
+                        0.1, 15.0, make_state_updater(state, "gaussian_sigma"),
+                        make_reset_callback(state, "gaussian_sigma", "gaussian_sigma_slider", DEFAULTS["gaussian_sigma"]),
+                        format_str="%.1f", width=80)
+                dpg.add_button(label="Regenerate Random Kernel", callback=regenerate_random_kernel,
+                               tag="randomize_button", show=(state.kernel_type == "Random"))
 
             dpg.add_spacer(width=10)
 
-            # Column 2: Regularization (only visible in Deconvolution mode)
-            with dpg.child_window(width=420, height=160, border=False, no_scrollbar=True,
-                                  tag="regularization_panel", show=False):
-                with dpg.collapsing_header(label="Regularization", default_open=True):
-                    with dpg.table(header_row=False,
-                                   borders_innerV=False, borders_outerV=False,
-                                   borders_innerH=False, borders_outerH=False,
-                                   policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-
-                        with dpg.table_row():
-                            dpg.add_text("Enable Regularization")
-                            dpg.add_checkbox(tag="reg_checkbox", default_value=state.use_regularization,
-                                             callback=make_state_updater(state, "use_regularization"))
-
-                        with dpg.table_row():
-                            dpg.add_text("Regularization Value")
-                            dpg.add_slider_float(tag="reg_slider", default_value=state.regularization,
-                                                 min_value=0.0001, max_value=0.5,
-                                                 callback=make_state_updater(state, "regularization"),
-                                                 width=80, format="%.4f")
+            # Regularization (only visible in Deconvolution mode)
+            with control_panel("Regularization", width=420, height=160,
+                               tag="regularization_panel", color=(220, 180, 100)):
+                dpg.add_checkbox(label="Enable", tag="use_regularization_checkbox",
+                                 default_value=state.use_regularization,
+                                 callback=make_state_updater(state, "use_regularization"))
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Reg. Value", "regularization_slider", DEFAULTS["regularization"],
+                        0.0001, 0.5, make_state_updater(state, "regularization"),
+                        make_reset_callback(state, "regularization", "regularization_slider", DEFAULTS["regularization"]),
+                        format_str="%.4f", width=80)
+            dpg.configure_item("regularization_panel", show=False)
 
         dpg.add_separator()
 
@@ -454,7 +436,7 @@ def main():
 
         dpg.render_dearpygui_frame()
 
-    if state.cap is not None:
+    if state.use_camera and state.cap is not None:
         state.cap.release()
     dpg.destroy_context()
 

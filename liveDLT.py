@@ -813,12 +813,11 @@ if __name__ == "__main__":
     from utils.demo_ui import (
         setup_viewport, make_state_updater, make_reset_callback,
         create_parameter_table, add_parameter_row, add_parameter_spacer_row,
-        load_fonts, bind_mono_font, add_global_controls,
+        load_fonts, bind_mono_font, add_global_controls, control_panel,
     )
 
     # ── Defaults ───────────────────────────────────────────────────────
     DEFAULTS = {
-        "ui_scale": 1.5,
         "mode": "Homography",
         "noise_px": 0.0,
         "n_points": 12,
@@ -834,6 +833,7 @@ if __name__ == "__main__":
         "show_svd_A": True,
         "show_svd_F": False,
         "show_A_matrix": False,
+        "ui_scale": 1.5,
     }
 
     class State:
@@ -1086,21 +1086,7 @@ if __name__ == "__main__":
 
         # Window
         with dpg.window(tag="main_window"):
-            def _dlt_extra_reset():
-                # Sliders use raw DEFAULTS keys as tags (no _slider suffix)
-                for key in ("noise_px", "n_points", "lambda_val",
-                            "epipole_coeff", "highlight_idx"):
-                    if dpg.does_item_exist(key):
-                        dpg.set_value(key, DEFAULTS[key])
-                # Checkboxes with non-standard tags
-                for tag, key in [("cb_hartley", "use_hartley"),
-                                 ("cb_decompose", "decompose_H"),
-                                 ("cb_svd_f", "show_svd_F")]:
-                    if dpg.does_item_exist(tag):
-                        dpg.set_value(tag, DEFAULTS[key])
-
             add_global_controls(DEFAULTS, state,
-                                reset_extra=_dlt_extra_reset,
                                 guide=GUIDE_HOMOGRAPHY
                                 + [{"title": "\u2500\u2500\u2500 Fundamental Matrix \u2500\u2500\u2500", "body": ""}]
                                 + GUIDE_FUNDAMENTAL,
@@ -1111,58 +1097,54 @@ if __name__ == "__main__":
             # Controls
             with dpg.group(horizontal=True):
                 # Block 1: Mode ───────────────────────────────────────────────
-                with dpg.child_window(width=220, height=200, border=False,
-                                       no_scrollbar=True):
-                    with dpg.collapsing_header(label="Mode", default_open=True):
-                        dpg.add_combo(["Homography", "Fundamental Matrix"],
-                                      default_value=state.mode, callback=_on_mode_change, width=180)
+                with control_panel("Mode", width=220, height=200,
+                                   color=(255, 220, 100)):
+                    dpg.add_combo(["Homography", "Fundamental Matrix"],
+                                  default_value=state.mode, callback=_on_mode_change, width=180,
+                                  tag="mode_combo")
 
                 dpg.add_spacer(width=8)
 
                 # Block 2: Input Data ─────────────────────────────────────────
-                with dpg.child_window(width=270, height=200, border=False,
-                                       no_scrollbar=True):
-                    with dpg.collapsing_header(label="Input Data",
-                                                default_open=True):
-                        with create_parameter_table():
+                with control_panel("Input Data", width=270, height=200,
+                                   color=(255, 200, 100)):
+                    with create_parameter_table():
                             dpg.add_table_column()
                             dpg.add_table_column(width_fixed=True, init_width_or_weight=200)
                             dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                             add_parameter_row(
-                                "Noise (px)", "noise_px", DEFAULTS["noise_px"],
+                                "Noise (px)", "noise_px_slider", DEFAULTS["noise_px"],
                                 0.0, 15.0,
                                 make_state_updater(state, "noise_px"),
                                 make_reset_callback(state, "noise_px",
-                                                    "noise_px",
+                                                    "noise_px_slider",
                                                     DEFAULTS["noise_px"]),
                                 slider_type="float", width=200, format_str="%.1f")
                             add_parameter_row(
-                                "# Points", "n_points", DEFAULTS["n_points"],
+                                "# Points", "n_points_slider", DEFAULTS["n_points"],
                                 4, 36,
                                 make_state_updater(state, "n_points"),
                                 make_reset_callback(state, "n_points",
-                                                    "n_points",
+                                                    "n_points_slider",
                                                     DEFAULTS["n_points"]),
                                 slider_type="int", width=200, format_str="%d")
 
                 dpg.add_spacer(width=8)
 
                 # Block 3: Solver ─────────────────────────────────────────────
-                with dpg.child_window(width=200, height=200, border=False,
-                                       no_scrollbar=True):
-                    with dpg.collapsing_header(label="Solver",
-                                                default_open=True):
-                        dpg.add_checkbox(label="Hartley Normalize",
+                with control_panel("Solver", width=200, height=200,
+                                   color=(150, 200, 255)):
+                    dpg.add_checkbox(label="Hartley Normalize",
                                           default_value=state.use_hartley,
                                           callback=make_state_updater(
                                               state, "use_hartley"),
-                                          tag="cb_hartley")
+                                          tag="use_hartley_checkbox")
 
                 dpg.add_spacer(width=8)
 
                 # Block 4: Mode-specific (Homography / Epipolar Geometry) ─────
-                with dpg.child_window(width=310, height=200, border=False,
-                                       no_scrollbar=True):
+                with control_panel("Analysis", width=310, height=200,
+                                   color=(220, 180, 100)):
                     with dpg.collapsing_header(label="Homography",
                                                 default_open=True,
                                                 tag="grp_homography"):
@@ -1171,31 +1153,32 @@ if __name__ == "__main__":
                         dpg.add_checkbox(label="Show Warp",
                                           default_value=state.show_warp,
                                           callback=make_state_updater(
-                                              state, "show_warp"))
+                                              state, "show_warp"),
+                                          tag="show_warp_checkbox")
                         dpg.add_checkbox(
                             label="Decompose H = λB + ae₃ᵀ",
                             default_value=state.decompose_H,
                             callback=make_state_updater(
                                 state, "decompose_H"),
-                            tag="cb_decompose")
+                            tag="decompose_H_checkbox")
                         with create_parameter_table():
                             dpg.add_table_column()
                             dpg.add_table_column(width_fixed=True, init_width_or_weight=200)
                             dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                             add_parameter_row(
-                                "λ (depth)", "lambda_val",
+                                "λ (depth)", "lambda_val_slider",
                                 DEFAULTS["lambda_val"], 0.5, 8.0,
                                 make_state_updater(state, "lambda_val"),
                                 make_reset_callback(state, "lambda_val",
-                                                    "lambda_val",
+                                                    "lambda_val_slider",
                                                     DEFAULTS["lambda_val"]),
                                 slider_type="float", width=200, format_str="%.2f")
                             add_parameter_row(
-                                "Epipole coeff", "epipole_coeff",
+                                "Epipole coeff", "epipole_coeff_slider",
                                 DEFAULTS["epipole_coeff"], 0.0, 2.0,
                                 make_state_updater(state, "epipole_coeff"),
                                 make_reset_callback(state, "epipole_coeff",
-                                                    "epipole_coeff",
+                                                    "epipole_coeff_slider",
                                                     DEFAULTS["epipole_coeff"]),
                                 slider_type="float", width=200, format_str="%.2f")
 
@@ -1206,43 +1189,44 @@ if __name__ == "__main__":
                             label="Show Epipolar Lines",
                             default_value=state.show_epipolar_lines,
                             callback=make_state_updater(
-                                state, "show_epipolar_lines"))
+                                state, "show_epipolar_lines"),
+                            tag="show_epipolar_lines_checkbox")
                         dpg.add_checkbox(
                             label="Show Epipoles",
                             default_value=state.show_epipoles,
                             callback=make_state_updater(
-                                state, "show_epipoles"))
+                                state, "show_epipoles"),
+                            tag="show_epipoles_checkbox")
                         with create_parameter_table():
                             dpg.add_table_column()
                             dpg.add_table_column(width_fixed=True, init_width_or_weight=200)
                             dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
                             add_parameter_row(
-                                "Highlight pt", "highlight_idx",
+                                "Highlight pt", "highlight_idx_slider",
                                 DEFAULTS["highlight_idx"], 0, 35,
                                 make_state_updater(state, "highlight_idx"),
                                 make_reset_callback(state, "highlight_idx",
-                                                    "highlight_idx",
+                                                    "highlight_idx_slider",
                                                     DEFAULTS["highlight_idx"]),
                                 slider_type="int", width=200, format_str="%d")
 
                 dpg.add_spacer(width=8)
 
                 # Block 5: Inspect ────────────────────────────────────────────
-                with dpg.child_window(width=240, height=200, border=False,
-                                       no_scrollbar=True):
-                    with dpg.collapsing_header(label="Inspect",
-                                                default_open=False):
-                        dpg.add_checkbox(
-                            label="Show SVD(A)",
-                            default_value=state.show_svd_A,
-                            callback=make_state_updater(
-                                state, "show_svd_A"))
-                        dpg.add_checkbox(
-                            label="Show SVD(F) rank enforcement",
-                            default_value=state.show_svd_F,
-                            callback=make_state_updater(
-                                state, "show_svd_F"),
-                            tag="cb_svd_f")
+                with control_panel("Inspect", width=240, height=200,
+                                   color=(150, 255, 150), default_open=False):
+                    dpg.add_checkbox(
+                        label="Show SVD(A)",
+                        default_value=state.show_svd_A,
+                        callback=make_state_updater(
+                            state, "show_svd_A"),
+                        tag="show_svd_A_checkbox")
+                    dpg.add_checkbox(
+                        label="Show SVD(F) rank enforcement",
+                        default_value=state.show_svd_F,
+                        callback=make_state_updater(
+                            state, "show_svd_F"),
+                        tag="show_svd_F_checkbox")
 
             dpg.add_separator()
 
@@ -1276,7 +1260,7 @@ if __name__ == "__main__":
             is_h = state.mode == "Homography"
             dpg.configure_item("grp_homography", show=is_h)
             dpg.configure_item("grp_fundamental", show=not is_h)
-            dpg.configure_item("cb_svd_f", show=not is_h)
+            dpg.configure_item("show_svd_F_checkbox", show=not is_h)
 
             render_frame()
             dpg.render_dearpygui_frame()

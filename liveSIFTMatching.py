@@ -11,13 +11,17 @@ import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
-from utils.demo_utils import init_camera, load_fallback_image, get_frame, DATA_DIR
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback, add_global_controls
+from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame, DATA_DIR
+from utils.demo_ui import (
+    load_fonts, setup_viewport, make_state_updater, make_reset_callback,
+    add_global_controls, control_panel, create_parameter_table, add_parameter_row,
+)
 
 # Default values
 DEFAULTS = {
     "match_distance": 0.55,
     "show_matches": True,
+    "pause": False,
     "ui_scale": 1.5,
 }
 
@@ -44,8 +48,6 @@ GUIDE_SIFT = [
              "Adjust the distance ratio to trade precision for recall."},
 ]
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
 
 class State:
     cap = None
@@ -65,6 +67,7 @@ class State:
     image_names = []
     use_camera = True
     cat_mode = False
+    pause = False
     fallback_image = None
 
 
@@ -232,18 +235,18 @@ def main():
                       parent=state.texture_registry)
 
     with dpg.window(label="SIFT Matching Demo", tag="main_window"):
-        def _extra_reset():
-            if dpg.does_item_exist("distance_slider"):
-                dpg.set_value("distance_slider", DEFAULTS["match_distance"])
-
-        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"),
-                            reset_extra=_extra_reset,
-                            guide=GUIDE_SIFT, guide_title="SIFT Feature Matching")
+        add_global_controls(
+            DEFAULTS, state,
+            cat_mode_callback=make_state_updater(state, "cat_mode"),
+            pause_callback=make_state_updater(state, "pause"),
+            guide=GUIDE_SIFT, guide_title="SIFT Feature Matching",
+        )
 
         dpg.add_separator()
 
-        with dpg.collapsing_header(label="Matching", default_open=True):
-            with dpg.group(horizontal=True):
+        with dpg.group(horizontal=True):
+            with control_panel("Matching", width=500, height=140,
+                               color=(150, 200, 255)):
                 dpg.add_combo(
                     label="Query",
                     items=state.image_names,
@@ -252,16 +255,15 @@ def main():
                     tag="query_combo",
                     width=150
                 )
-                dpg.add_slider_float(
-                    label="Distance Ratio",
-                    default_value=state.match_distance,
-                    min_value=0.1, max_value=1.0,
-                    callback=make_state_updater(state, "match_distance"),
-                    tag="distance_slider",
-                    width=120
-                )
-                dpg.add_button(label="R",
-                              callback=make_reset_callback(state, "match_distance", "distance_slider", DEFAULTS["match_distance"]))
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Distance Ratio", "match_distance_slider", DEFAULTS["match_distance"],
+                        0.1, 1.0, make_state_updater(state, "match_distance"),
+                        make_reset_callback(state, "match_distance", "match_distance_slider", DEFAULTS["match_distance"]),
+                        format_str="%.2f", width=120)
                 dpg.add_checkbox(
                     label="Show Matches",
                     default_value=state.show_matches,
@@ -319,29 +321,28 @@ def main():
             state.texture_needs_recreate = False
             continue  # Skip frame processing during recreation to prevent timing issues
 
-        frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
-        if frame is None:
-            continue
+        if not state.pause:
+            frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
+            if frame is None:
+                dpg.render_dearpygui_frame()
+                continue
 
-        output, good_matches = compute_sift_matches(
-            frame, state.query_image, detector,
-            state.match_distance, state.show_matches)
+            output, good_matches = compute_sift_matches(
+                frame, state.query_image, detector,
+                state.match_distance, state.show_matches)
 
+            # Update texture - resize output to match texture size
+            if len(output.shape) == 2:
+                output = cv2.cvtColor(output, cv2.COLOR_GRAY2BGR)
 
-        # Update texture - resize output to match texture size
-        if len(output.shape) == 2:
-            output = cv2.cvtColor(output, cv2.COLOR_GRAY2BGR)
+            output = cv2.resize(output, (state.texture_width, state.texture_height))
 
-        output = cv2.resize(output, (state.texture_width, state.texture_height))
-        output_rgba = cv2.cvtColor(output, cv2.COLOR_BGR2RGBA)
-        output_data = (output_rgba.astype(np.float32) / 255.0).flatten()
+            # CRITICAL: Skip texture update if recreation is in progress to prevent buffer size mismatch
+            if not state.texture_needs_recreate:
+                dpg.set_value(state.current_texture_tag, convert_cv_to_dpg(output))
 
-        # CRITICAL: Skip texture update if recreation is in progress to prevent buffer size mismatch
-        if not state.texture_needs_recreate:
-            dpg.set_value(state.current_texture_tag, output_data)
-
-        status = f"Good Matches: {len(good_matches)}  |  Distance Ratio: {state.match_distance:.2f}"
-        dpg.set_value("status_text", status)
+            status = f"Good Matches: {len(good_matches)}  |  Distance Ratio: {state.match_distance:.2f}"
+            dpg.set_value("status_text", status)
 
         dpg.render_dearpygui_frame()
 

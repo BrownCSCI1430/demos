@@ -7,13 +7,15 @@ This version: Dear PyGui sliders for interactive Harris corner detection
 """
 
 import cv2
-import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import (convert_cv_to_dpg, init_camera, load_fallback_image, get_frame,
                               apply_affine_transform, apply_brightness)
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback, add_global_controls
+from utils.demo_ui import (
+    load_fonts, setup_viewport, make_state_updater, make_reset_callback,
+    add_global_controls, control_panel, create_parameter_table, add_parameter_row,
+)
 
 # Default values
 DEFAULTS = {
@@ -21,13 +23,14 @@ DEFAULTS = {
     "ksize": 5,
     "k": 0.07,
     "threshold": 0.01,
-    "ui_scale": 1.5,
     "rotation": 0.0,
     "scale": 1.0,
     "translate_x": 0.0,
     "translate_y": 0.0,
     "brightness_scale": 1.0,
     "brightness_shift": 0.0,
+    "pause": False,
+    "ui_scale": 1.5,
 }
 
 GUIDE_HARRIS = [
@@ -52,9 +55,6 @@ GUIDE_HARRIS = [
              "changes which corners are detected. This motivates SIFT."},
 ]
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-
 class State:
     cap = None
     frame_width = 0
@@ -66,7 +66,7 @@ class State:
     use_camera = True
     cat_mode = False
     fallback_image = None
-    paused = False
+    pause = False
     paused_frame = None
     rotation = DEFAULTS["rotation"]
     scale = DEFAULTS["scale"]
@@ -109,12 +109,6 @@ def on_viewport_resize():
 def update_ksize(sender, value):
     state.ksize = value if value % 2 == 1 else value + 1
     dpg.set_value(sender, state.ksize)
-
-
-def toggle_pause(sender, value):
-    state.paused = value
-    if not value:
-        state.paused_frame = None
 
 
 # Multi-value reset for translate
@@ -169,142 +163,97 @@ def main():
 
     with dpg.window(label="Harris Corners Demo", tag="main_window"):
         def _extra_reset():
-            if dpg.does_item_exist("block_slider"):
-                dpg.set_value("block_slider", DEFAULTS["block_size"])
-            state.paused = False
             state.paused_frame = None
-            if dpg.does_item_exist("pause_checkbox"):
-                dpg.set_value("pause_checkbox", False)
 
         add_global_controls(
             DEFAULTS, state,
             cat_mode_callback=make_state_updater(state, "cat_mode"),
-            pause_callback=toggle_pause,
+            pause_callback=make_state_updater(state, "pause"),
             reset_extra=_extra_reset,
             guide=GUIDE_HARRIS, guide_title="Harris Corner Detection",
         )
 
         dpg.add_separator()
 
-        # Horizontal sections using child_window containers
+        # Horizontal sections using control panels
         with dpg.group(horizontal=True):
             # Column 1: Harris Detection
-            with dpg.child_window(width=250, height=160, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Harris Detection", default_open=True):
-                    with dpg.table(header_row=False,
-                                   borders_innerV=False, borders_outerV=False,
-                                   borders_innerH=False, borders_outerH=False,
-                                   policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-                        with dpg.table_row():
-                            dpg.add_text("Block Size")
-                            dpg.add_slider_int(tag="block_slider", default_value=state.block_size,
-                                               min_value=2, max_value=10,
-                                               callback=make_state_updater(state, "block_size"), width=80)
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "block_size", "block_slider", DEFAULTS["block_size"]),
-                                           width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Sobel K")
-                            dpg.add_slider_int(tag="ksize_slider", default_value=state.ksize,
-                                               min_value=3, max_value=31, callback=update_ksize, width=80)
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "ksize", "ksize_slider", DEFAULTS["ksize"]),
-                                           width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Harris k")
-                            dpg.add_slider_float(tag="k_slider", default_value=state.k,
-                                                 min_value=0.01, max_value=0.3,
-                                                 callback=make_state_updater(state, "k"), width=80, format="%.3f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "k", "k_slider", DEFAULTS["k"]),
-                                           width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Threshold")
-                            dpg.add_slider_float(tag="threshold_slider", default_value=state.threshold,
-                                                 min_value=0.001, max_value=0.1,
-                                                 callback=make_state_updater(state, "threshold"), width=80, format="%.4f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "threshold", "threshold_slider", DEFAULTS["threshold"]),
-                                           width=25)
+            with control_panel("Harris Detection", width=250, height=160,
+                               color=(150, 200, 255)):
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Block Size", "block_size_slider", DEFAULTS["block_size"],
+                        2, 10, make_state_updater(state, "block_size"),
+                        make_reset_callback(state, "block_size", "block_size_slider", DEFAULTS["block_size"]),
+                        slider_type="int", width=80)
+                    add_parameter_row(
+                        "Sobel K", "ksize_slider", DEFAULTS["ksize"],
+                        3, 31, update_ksize,
+                        make_reset_callback(state, "ksize", "ksize_slider", DEFAULTS["ksize"]),
+                        slider_type="int", width=80)
+                    add_parameter_row(
+                        "Harris k", "k_slider", DEFAULTS["k"],
+                        0.01, 0.3, make_state_updater(state, "k"),
+                        make_reset_callback(state, "k", "k_slider", DEFAULTS["k"]),
+                        format_str="%.3f", width=80)
+                    add_parameter_row(
+                        "Threshold", "threshold_slider", DEFAULTS["threshold"],
+                        0.001, 0.1, make_state_updater(state, "threshold"),
+                        make_reset_callback(state, "threshold", "threshold_slider", DEFAULTS["threshold"]),
+                        format_str="%.4f", width=80)
 
             dpg.add_spacer(width=10)
 
             # Column 2: Transforms
-            with dpg.child_window(width=300, height=160, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Transforms", default_open=True):
-                    with dpg.table(header_row=False,
-                                   borders_innerV=False, borders_outerV=False,
-                                   borders_innerH=False, borders_outerH=False,
-                                   policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-                        with dpg.table_row():
-                            dpg.add_text("Rotate")
-                            dpg.add_slider_float(tag="rotation_slider", default_value=state.rotation,
-                                                 min_value=-180.0, max_value=180.0,
-                                                 callback=make_state_updater(state, "rotation"), width=80, format="%.1f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "rotation", "rotation_slider", DEFAULTS["rotation"]),
-                                           width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Scale")
-                            dpg.add_slider_float(tag="scale_slider", default_value=state.scale,
-                                                 min_value=0.25, max_value=4.0,
-                                                 callback=make_state_updater(state, "scale"), width=80, format="%.2f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "scale", "scale_slider", DEFAULTS["scale"]),
-                                           width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Translate X")
-                            dpg.add_slider_float(tag="translate_x_slider", default_value=state.translate_x,
-                                                 min_value=-50.0, max_value=50.0,
-                                                 callback=make_state_updater(state, "translate_x"), width=80, format="%.1f")
-                            dpg.add_button(label="R", callback=reset_translate, width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Translate Y")
-                            dpg.add_slider_float(tag="translate_y_slider", default_value=state.translate_y,
-                                                 min_value=-50.0, max_value=50.0,
-                                                 callback=make_state_updater(state, "translate_y"), width=80, format="%.1f")
-                            dpg.add_spacer(width=25)
+            with control_panel("Transforms", width=300, height=160,
+                               color=(220, 180, 100)):
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Rotate", "rotation_slider", DEFAULTS["rotation"],
+                        -180.0, 180.0, make_state_updater(state, "rotation"),
+                        make_reset_callback(state, "rotation", "rotation_slider", DEFAULTS["rotation"]),
+                        format_str="%.1f", width=80)
+                    add_parameter_row(
+                        "Scale", "scale_slider", DEFAULTS["scale"],
+                        0.25, 4.0, make_state_updater(state, "scale"),
+                        make_reset_callback(state, "scale", "scale_slider", DEFAULTS["scale"]),
+                        format_str="%.2f", width=80)
+                    add_parameter_row(
+                        "Translate X", "translate_x_slider", DEFAULTS["translate_x"],
+                        -50.0, 50.0, make_state_updater(state, "translate_x"),
+                        reset_translate,
+                        format_str="%.1f", width=80)
+                    add_parameter_row(
+                        "Translate Y", "translate_y_slider", DEFAULTS["translate_y"],
+                        -50.0, 50.0, make_state_updater(state, "translate_y"),
+                        reset_translate,
+                        format_str="%.1f", width=80)
 
             dpg.add_spacer(width=10)
 
             # Column 3: Brightness
-            with dpg.child_window(width=250, height=160, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Brightness", default_open=True):
-                    with dpg.table(header_row=False,
-                                   borders_innerV=False, borders_outerV=False,
-                                   borders_innerH=False, borders_outerH=False,
-                                   policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-                        with dpg.table_row():
-                            dpg.add_text("Scale")
-                            dpg.add_slider_float(tag="brightness_scale_slider", default_value=state.brightness_scale,
-                                                 min_value=0.5, max_value=2.0,
-                                                 callback=make_state_updater(state, "brightness_scale"), width=80, format="%.2f")
-                            dpg.add_button(label="R", callback=reset_brightness, width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Shift")
-                            dpg.add_slider_float(tag="brightness_shift_slider", default_value=state.brightness_shift,
-                                                 min_value=-100.0, max_value=100.0,
-                                                 callback=make_state_updater(state, "brightness_shift"), width=80, format="%.1f")
-                            dpg.add_spacer(width=25)
+            with control_panel("Brightness", width=250, height=160,
+                               color=(150, 255, 150)):
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Scale", "brightness_scale_slider", DEFAULTS["brightness_scale"],
+                        0.5, 2.0, make_state_updater(state, "brightness_scale"),
+                        reset_brightness,
+                        format_str="%.2f", width=80)
+                    add_parameter_row(
+                        "Shift", "brightness_shift_slider", DEFAULTS["brightness_shift"],
+                        -100.0, 100.0, make_state_updater(state, "brightness_shift"),
+                        reset_brightness,
+                        format_str="%.1f", width=80)
 
         dpg.add_separator()
         dpg.add_text("", tag="status_text")
@@ -333,14 +282,16 @@ def main():
         img = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode,
                         (state.frame_width, state.frame_height))
         if img is None:
+            dpg.render_dearpygui_frame()
             continue
 
         # Handle pause
-        if state.paused:
+        if state.pause:
             if state.paused_frame is None:
                 state.paused_frame = img.copy()
             img_orig = state.paused_frame.copy()
         else:
+            state.paused_frame = None
             img_orig = img.copy()
 
         # Process original image

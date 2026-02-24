@@ -4,7 +4,6 @@ CSCI 1430 - Brown University
 """
 
 import cv2
-import os
 import math
 import numpy as np
 import dearpygui.dearpygui as dpg
@@ -12,7 +11,10 @@ from skimage import img_as_float
 from skimage.color import rgb2gray
 
 from utils.demo_utils import init_camera, load_fallback_image, convert_cv_to_dpg_float, crop_to_square, get_frame
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback, add_global_controls
+from utils.demo_ui import (
+    load_fonts, setup_viewport, make_state_updater, make_reset_callback,
+    add_global_controls, control_panel, create_parameter_table, add_parameter_row,
+)
 
 # Default values
 DEFAULTS = {
@@ -59,8 +61,6 @@ GUIDE_FOURIER = [
              "scale to see their different roles."},
 ]
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
 
 class State:
     cap = None
@@ -85,7 +85,6 @@ class State:
     dc_shift = DEFAULTS["dc_shift"]
     dc_zero = DEFAULTS["dc_zero"]
     pause = DEFAULTS["pause"]
-    show_text = True
 
     # Animation for mode 2 (rotating dot)
     magnitude = 1
@@ -281,10 +280,6 @@ def main():
     with dpg.window(label="Fourier Transform Demo", tag="main_window"):
         # Global controls row
         def _extra_reset():
-            for tag, key in [("amplitude_slider", "amplitude_scalar"),
-                             ("phase_slider", "phase_offset")]:
-                if dpg.does_item_exist(tag):
-                    dpg.set_value(tag, DEFAULTS[key])
             state.mode = 0
             if dpg.does_item_exist("mode_combo"):
                 dpg.set_value("mode_combo", "Normal FFT")
@@ -301,159 +296,104 @@ def main():
 
         dpg.add_separator()
 
-        # Parameters using child_window containers
+        # Parameters
         with dpg.group(horizontal=True):
             # Mode selector
-            with dpg.child_window(width=200, height=130, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Mode", default_open=True):
-                    dpg.add_combo(
-                        items=["Normal FFT", "DC Only", "Rotating Dot", "Frequency Reconstruction"],
-                        default_value="Normal FFT", callback=update_mode,
-                        tag="mode_combo", width=160,
-                    )
+            with control_panel("Mode", width=200, height=130,
+                               color=(255, 220, 100)):
+                dpg.add_combo(
+                    items=["Normal FFT", "DC Only", "Rotating Dot", "Frequency Reconstruction"],
+                    default_value="Normal FFT", callback=update_mode,
+                    tag="mode_combo", width=160,
+                )
 
             dpg.add_spacer(width=10)
 
-            # Column 1: Input Intensity
-            with dpg.child_window(width=300, height=130, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Input Intensity [0,1]", default_open=True):
-                    with dpg.table(header_row=False,
-                                   borders_innerV=False, borders_outerV=False,
-                                   borders_innerH=False, borders_outerH=False,
-                                   policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-                        with dpg.table_row():
-                            dpg.add_text("Shift I")
-                            dpg.add_slider_float(tag="intensity_shift_slider", default_value=state.intensity_shift,
-                                                 min_value=-1.0, max_value=1.0,
-                                                 callback=make_state_updater(state, "intensity_shift"),
-                                                 width=60, format="%.2f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "intensity_shift", "intensity_shift_slider", DEFAULTS["intensity_shift"]),
-                                           width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Scale I")
-                            dpg.add_slider_float(tag="intensity_scale_slider", default_value=state.intensity_scale,
-                                                 min_value=0.0, max_value=3.0,
-                                                 callback=make_state_updater(state, "intensity_scale"),
-                                                 width=60, format="%.2f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "intensity_scale", "intensity_scale_slider", DEFAULTS["intensity_scale"]),
-                                           width=25)
+            # Input Intensity
+            with control_panel("Input Intensity [0,1]", width=300, height=130,
+                               color=(150, 200, 255)):
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Shift I", "intensity_shift_slider", DEFAULTS["intensity_shift"],
+                        -1.0, 1.0, make_state_updater(state, "intensity_shift"),
+                        make_reset_callback(state, "intensity_shift", "intensity_shift_slider", DEFAULTS["intensity_shift"]),
+                        format_str="%.2f", width=60)
+                    add_parameter_row(
+                        "Scale I", "intensity_scale_slider", DEFAULTS["intensity_scale"],
+                        0.0, 3.0, make_state_updater(state, "intensity_scale"),
+                        make_reset_callback(state, "intensity_scale", "intensity_scale_slider", DEFAULTS["intensity_scale"]),
+                        format_str="%.2f", width=60)
 
             dpg.add_spacer(width=10)
 
-            # Column 2: Input Transforms
-            with dpg.child_window(width=320, height=160, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Input 2D Transforms", default_open=True):
-                    with dpg.table(header_row=False,
-                                   borders_innerV=False, borders_outerV=False,
-                                   borders_innerH=False, borders_outerH=False,
-                                   policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-                        with dpg.table_row():
-                            dpg.add_text("Rotate x,y")
-                            dpg.add_slider_float(tag="rotation_slider", default_value=state.image_rotation,
-                                                 min_value=-180.0, max_value=180.0,
-                                                 callback=make_state_updater(state, "image_rotation"),
-                                                 width=60, format="%.1f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "image_rotation", "rotation_slider", DEFAULTS["image_rotation"]),
-                                           width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Scale x,y")
-                            dpg.add_slider_float(tag="scale_slider", default_value=state.image_scale,
-                                                 min_value=0.25, max_value=4.0,
-                                                 callback=make_state_updater(state, "image_scale"),
-                                                 width=60, format="%.2f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "image_scale", "scale_slider", DEFAULTS["image_scale"]),
-                                           width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Translate x")
-                            dpg.add_slider_float(tag="translate_x_slider", default_value=state.image_translate_x,
-                                                 min_value=-100.0, max_value=100.0,
-                                                 callback=make_state_updater(state, "image_translate_x"),
-                                                 width=60, format="%.1f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "image_translate_x", "translate_x_slider", DEFAULTS["image_translate_x"]),
-                                           width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Translate y")
-                            dpg.add_slider_float(tag="translate_y_slider", default_value=state.image_translate_y,
-                                                 min_value=-100.0, max_value=100.0,
-                                                 callback=make_state_updater(state, "image_translate_y"),
-                                                 width=60, format="%.1f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "image_translate_y", "translate_y_slider", DEFAULTS["image_translate_y"]),
-                                           width=25)
+            # Input 2D Transforms
+            with control_panel("Input 2D Transforms", width=320, height=160,
+                               color=(220, 180, 100)):
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Rotate x,y", "image_rotation_slider", DEFAULTS["image_rotation"],
+                        -180.0, 180.0, make_state_updater(state, "image_rotation"),
+                        make_reset_callback(state, "image_rotation", "image_rotation_slider", DEFAULTS["image_rotation"]),
+                        format_str="%.1f", width=60)
+                    add_parameter_row(
+                        "Scale x,y", "image_scale_slider", DEFAULTS["image_scale"],
+                        0.25, 4.0, make_state_updater(state, "image_scale"),
+                        make_reset_callback(state, "image_scale", "image_scale_slider", DEFAULTS["image_scale"]),
+                        format_str="%.2f", width=60)
+                    add_parameter_row(
+                        "Translate x", "image_translate_x_slider", DEFAULTS["image_translate_x"],
+                        -100.0, 100.0, make_state_updater(state, "image_translate_x"),
+                        make_reset_callback(state, "image_translate_x", "image_translate_x_slider", DEFAULTS["image_translate_x"]),
+                        format_str="%.1f", width=60)
+                    add_parameter_row(
+                        "Translate y", "image_translate_y_slider", DEFAULTS["image_translate_y"],
+                        -100.0, 100.0, make_state_updater(state, "image_translate_y"),
+                        make_reset_callback(state, "image_translate_y", "image_translate_y_slider", DEFAULTS["image_translate_y"]),
+                        format_str="%.1f", width=60)
 
             dpg.add_spacer(width=10)
 
-            # Column 3: Fourier Parameters
-            with dpg.child_window(width=460, height=160, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Fourier Parameters", default_open=True):
-                    with dpg.table(header_row=False,
-                                   borders_innerV=False, borders_outerV=False,
-                                   borders_innerH=False, borders_outerH=False,
-                                   policy=dpg.mvTable_SizingFixedFit):
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-                        with dpg.table_row():
-                            dpg.add_text("DC Shift")
-                            dpg.add_slider_float(tag="dc_shift_slider", default_value=state.dc_shift,
-                                                 min_value=-1.0, max_value=1.0,
-                                                 callback=make_state_updater(state, "dc_shift"),
-                                                 width=60, format="%.2f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "dc_shift", "dc_shift_slider", DEFAULTS["dc_shift"]),
-                                           width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Amplitude Scale (no DC)")
-                            dpg.add_slider_float(tag="amplitude_slider", default_value=state.amplitude_scalar,
-                                                 min_value=0.1, max_value=5.0,
-                                                 callback=make_state_updater(state, "amplitude_scalar"),
-                                                 width=60, format="%.2f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "amplitude_scalar", "amplitude_slider", DEFAULTS["amplitude_scalar"]),
-                                           width=25)
-
-                        with dpg.table_row():
-                            dpg.add_text("Phase Offset")
-                            dpg.add_slider_float(tag="phase_slider", default_value=state.phase_offset,
-                                                 min_value=-3.14, max_value=3.14,
-                                                 callback=make_state_updater(state, "phase_offset"),
-                                                 width=60, format="%.2f")
-                            dpg.add_button(label="R",
-                                           callback=make_reset_callback(state, "phase_offset", "phase_slider", DEFAULTS["phase_offset"]),
-                                           width=25)
-
-                    dpg.add_checkbox(label="Zero DC", default_value=state.dc_zero,
-                                   callback=make_state_updater(state, "dc_zero"))
+            # Fourier Parameters
+            with control_panel("Fourier Parameters", width=460, height=160,
+                               color=(150, 255, 150)):
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=80)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "DC Shift", "dc_shift_slider", DEFAULTS["dc_shift"],
+                        -1.0, 1.0, make_state_updater(state, "dc_shift"),
+                        make_reset_callback(state, "dc_shift", "dc_shift_slider", DEFAULTS["dc_shift"]),
+                        format_str="%.2f", width=60)
+                    add_parameter_row(
+                        "Amplitude Scale (no DC)", "amplitude_scalar_slider", DEFAULTS["amplitude_scalar"],
+                        0.1, 5.0, make_state_updater(state, "amplitude_scalar"),
+                        make_reset_callback(state, "amplitude_scalar", "amplitude_scalar_slider", DEFAULTS["amplitude_scalar"]),
+                        format_str="%.2f", width=60)
+                    add_parameter_row(
+                        "Phase Offset", "phase_offset_slider", DEFAULTS["phase_offset"],
+                        -3.14, 3.14, make_state_updater(state, "phase_offset"),
+                        make_reset_callback(state, "phase_offset", "phase_offset_slider", DEFAULTS["phase_offset"]),
+                        format_str="%.2f", width=60)
+                dpg.add_checkbox(label="Zero DC", default_value=state.dc_zero,
+                               callback=make_state_updater(state, "dc_zero"))
 
             dpg.add_spacer(width=10)
 
-            # Column 4: Animation (only visible in Rotating Dot mode)
-            with dpg.child_window(width=200, height=130, border=False, no_scrollbar=True,
-                                  tag="animation_panel", show=False):
-                with dpg.collapsing_header(label="Animation", default_open=True):
-                    dpg.add_checkbox(label="Animate Magnitude", default_value=state.animate_magnitude,
-                                   callback=make_state_updater(state, "animate_magnitude"))
-                    dpg.add_checkbox(label="Animate Orientation", default_value=state.animate_orientation,
-                                   callback=make_state_updater(state, "animate_orientation"))
+            # Animation (only visible in Rotating Dot mode)
+            with control_panel("Animation", width=200, height=130,
+                               tag="animation_panel", color=(255, 180, 150)):
+                dpg.add_checkbox(label="Animate Magnitude", default_value=state.animate_magnitude,
+                               callback=make_state_updater(state, "animate_magnitude"))
+                dpg.add_checkbox(label="Animate Orientation", default_value=state.animate_orientation,
+                               callback=make_state_updater(state, "animate_orientation"))
+            dpg.configure_item("animation_panel", show=False)
 
         dpg.add_separator()
 
@@ -515,7 +455,7 @@ def main():
 
         dpg.render_dearpygui_frame()
 
-    if state.cap is not None:
+    if state.use_camera and state.cap is not None:
         state.cap.release()
     dpg.destroy_context()
 

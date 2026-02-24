@@ -41,7 +41,7 @@ from utils.demo_utils import convert_cv_to_dpg
 from utils.demo_ui import (
     load_fonts, bind_mono_font,
     setup_viewport,
-    add_global_controls,
+    add_global_controls, control_panel,
 )
 
 
@@ -51,7 +51,6 @@ from utils.demo_ui import (
 
 IMG_W, IMG_H   = 420, 380
 OVERVIEW_SIZE  = 420
-UI_SCALE       = 1.5
 DEFAULTS = {"ui_scale": 1.5}
 
 GUIDE_TRIANGULATION = [
@@ -343,18 +342,18 @@ def main():
         # ── Main panels ───────────────────────────────────────────────────────
         with dpg.group(horizontal=True):
             # Controls
-            with dpg.child_window(width=180, height=300, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Controls", default_open=True):
-                    dpg.add_button(
-                        label="Clear clicks", callback=_clear_clicks,
-                    )
-                    dpg.add_spacer(height=10)
-                    dpg.add_text(
-                        "Left-click in LEFT view \u2192 epipolar line\n"
-                        "Left-click in RIGHT view \u2192 triangulate\n"
-                        "Right-click \u2192 clear",
-                        color=(200, 200, 120), wrap=160,
-                    )
+            with control_panel("Controls", width=180, height=300,
+                               color=(255, 220, 100)):
+                dpg.add_button(
+                    label="Clear clicks", callback=_clear_clicks,
+                )
+                dpg.add_spacer(height=10)
+                dpg.add_text(
+                    "Left-click in LEFT view \u2192 epipolar line\n"
+                    "Left-click in RIGHT view \u2192 triangulate\n"
+                    "Right-click \u2192 clear",
+                    color=(200, 200, 120), wrap=160,
+                )
 
             dpg.add_spacer(width=10)
 
@@ -392,7 +391,7 @@ def main():
     bind_mono_font("math_text")
 
     setup_viewport("Triangulation Demo (DLT)", 1400, 750,
-                   "main_window", lambda: None, UI_SCALE)
+                   "main_window", lambda: None, DEFAULTS["ui_scale"])
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     while dpg.is_dearpygui_running():

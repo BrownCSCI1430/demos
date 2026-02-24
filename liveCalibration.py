@@ -44,7 +44,7 @@ from utils.demo_ui import (
     setup_viewport, make_state_updater, make_reset_callback,
     create_parameter_table, add_parameter_row,
     load_fonts, bind_mono_font,
-    add_global_controls,
+    add_global_controls, control_panel,
 )
 
 
@@ -55,10 +55,10 @@ from utils.demo_ui import (
 DEFAULTS = {
     "noise_px": 0.0,
     "n_points": 12,
-    "ui_scale": 1.5,
     "use_normal_eqs": False,
     "offset_exp": 0,
     "scale_exp": 0,
+    "ui_scale": 1.5,
 }
 
 GUIDE_CALIBRATION = [
@@ -556,16 +556,11 @@ def _calib_extra_reset():
     state.use_hartley = False
     state.use_coplanar = False
     OvCam.reset()
-    # Non-standard slider/checkbox tags
+    # Non-DEFAULTS checkboxes (not auto-reset by convention)
     for tag, val in [
-        ("noise_slider",     DEFAULTS["noise_px"]),
-        ("npts_slider",      DEFAULTS["n_points"]),
-        ("offset_slider",    DEFAULTS["offset_exp"]),
-        ("scale_slider",     DEFAULTS["scale_exp"]),
-        ("show_A_check",     False),
-        ("hartley_check",    False),
-        ("normal_eqs_check", DEFAULTS["use_normal_eqs"]),
-        ("coplanar_check",   False),
+        ("show_A_check",   False),
+        ("hartley_check",  False),
+        ("coplanar_check", False),
     ]:
         if dpg.does_item_exist(tag):
             dpg.set_value(tag, val)
@@ -611,84 +606,84 @@ def main():
         with dpg.group(horizontal=True):
 
             # Block 1: Input Data ─────────────────────────────────────────────
-            with dpg.child_window(width=290, height=170, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Input Data", default_open=True):
-                    with create_parameter_table():
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-                        add_parameter_row(
-                            "Noise (px)", "noise_slider",
-                            DEFAULTS["noise_px"], 0.0, 20.0,
-                            make_state_updater(state, "noise_px"),
-                            make_reset_callback(state, "noise_px", "noise_slider", DEFAULTS["noise_px"]),
-                            format_str="%.1f", width=140,
-                        )
-                        add_parameter_row(
-                            "N points", "npts_slider",
-                            DEFAULTS["n_points"], 6, npts_max,
-                            make_state_updater(state, "n_points"),
-                            make_reset_callback(state, "n_points", "npts_slider", DEFAULTS["n_points"]),
-                            slider_type="int", width=140,
-                        )
-                    dpg.add_checkbox(
-                        label="Coplanar (z=const)",
-                        default_value=False, callback=on_coplanar, tag="coplanar_check",
+            with control_panel("Input Data", width=290, height=170,
+                               color=(255, 200, 100)):
+                with create_parameter_table():
+                    dpg.add_table_column()  # label (auto-fit)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
+                    add_parameter_row(
+                        "Noise (px)", "noise_px_slider",
+                        DEFAULTS["noise_px"], 0.0, 20.0,
+                        make_state_updater(state, "noise_px"),
+                        make_reset_callback(state, "noise_px", "noise_px_slider", DEFAULTS["noise_px"]),
+                        format_str="%.1f", width=140,
                     )
+                    add_parameter_row(
+                        "N points", "n_points_slider",
+                        DEFAULTS["n_points"], 6, npts_max,
+                        make_state_updater(state, "n_points"),
+                        make_reset_callback(state, "n_points", "n_points_slider", DEFAULTS["n_points"]),
+                        slider_type="int", width=140,
+                    )
+                dpg.add_checkbox(
+                    label="Coplanar (z=const)",
+                    default_value=False, callback=on_coplanar, tag="coplanar_check",
+                )
 
             dpg.add_spacer(width=8)
 
             # Block 2: Solver ─────────────────────────────────────────────────
-            with dpg.child_window(width=220, height=170, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Solver", default_open=True):
-                    dpg.add_checkbox(
-                        label="Hartley Normalize",
-                        default_value=False, callback=on_hartley, tag="hartley_check",
-                    )
-                    dpg.add_spacer(height=4)
-                    dpg.add_checkbox(
-                        label="Solve via A\u1d40A",
-                        default_value=DEFAULTS["use_normal_eqs"],
-                        callback=on_normal_eqs, tag="normal_eqs_check",
-                    )
+            with control_panel("Solver", width=220, height=170,
+                               color=(150, 200, 255)):
+                dpg.add_checkbox(
+                    label="Hartley Normalize",
+                    default_value=False, callback=on_hartley, tag="hartley_check",
+                )
+                dpg.add_spacer(height=4)
+                dpg.add_checkbox(
+                    label="Solve via A\u1d40A",
+                    default_value=DEFAULTS["use_normal_eqs"],
+                    callback=on_normal_eqs, tag="use_normal_eqs_checkbox",
+                )
 
             dpg.add_spacer(width=8)
 
             # Block 3: Coordinate Scale/Shift ─────────────────────────────────
-            with dpg.child_window(width=330, height=170, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="3D Coordinate Shift/Scale", default_open=True):
-                    with create_parameter_table():
-                        dpg.add_table_column()  # label (auto-fit)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
-                        dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-                        add_parameter_row(
-                            "Shift 10\u207f", "offset_slider",
-                            DEFAULTS["offset_exp"], 0, 8,
-                            make_state_updater(state, "offset_exp"),
-                            make_reset_callback(state, "offset_exp", "offset_slider", DEFAULTS["offset_exp"]),
-                            slider_type="int", width=140,
-                        )
-                        add_parameter_row(
-                            "Scale 10\u207f", "scale_slider",
-                            DEFAULTS["scale_exp"], 0, 6,
-                            make_state_updater(state, "scale_exp"),
-                            make_reset_callback(state, "scale_exp", "scale_slider", DEFAULTS["scale_exp"]),
-                            slider_type="int", width=140,
-                        )
-                    dpg.add_text(
-                        "\u2191 Increase these, then normalize!",
-                        color=(255, 200, 100),
+            with control_panel("3D Coordinate Shift/Scale", width=330, height=170,
+                               color=(220, 180, 100)):
+                with create_parameter_table():
+                    dpg.add_table_column()  # label (auto-fit)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=140)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
+                    add_parameter_row(
+                        "Shift 10\u207f", "offset_exp_slider",
+                        DEFAULTS["offset_exp"], 0, 8,
+                        make_state_updater(state, "offset_exp"),
+                        make_reset_callback(state, "offset_exp", "offset_exp_slider", DEFAULTS["offset_exp"]),
+                        slider_type="int", width=140,
                     )
+                    add_parameter_row(
+                        "Scale 10\u207f", "scale_exp_slider",
+                        DEFAULTS["scale_exp"], 0, 6,
+                        make_state_updater(state, "scale_exp"),
+                        make_reset_callback(state, "scale_exp", "scale_exp_slider", DEFAULTS["scale_exp"]),
+                        slider_type="int", width=140,
+                    )
+                dpg.add_text(
+                    "\u2191 Increase these, then normalize!",
+                    color=(255, 200, 100),
+                )
 
             dpg.add_spacer(width=8)
 
             # Block 4: Inspect ────────────────────────────────────────────────
-            with dpg.child_window(width=180, height=170, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Inspect", default_open=True):
-                    dpg.add_checkbox(
-                        label="Show A matrix",
-                        default_value=False, callback=on_show_A, tag="show_A_check",
-                    )
+            with control_panel("Inspect", width=180, height=170,
+                               color=(150, 255, 150)):
+                dpg.add_checkbox(
+                    label="Show A matrix",
+                    default_value=False, callback=on_show_A, tag="show_A_check",
+                )
 
         dpg.add_separator()
 

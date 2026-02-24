@@ -7,12 +7,14 @@ This version: Dear PyGui sliders for interactive HOG control
 """
 
 import cv2
-import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback, add_global_controls
+from utils.demo_ui import (
+    load_fonts, setup_viewport, make_state_updater, make_reset_callback,
+    add_global_controls, control_panel, create_parameter_table, add_parameter_row,
+)
 
 # Default values
 DEFAULTS = {
@@ -20,6 +22,7 @@ DEFAULTS = {
     "scale": 1.05,
     "hit_threshold": 0.0,
     "show_boxes": True,
+    "pause": False,
     "ui_scale": 1.5,
 }
 
@@ -44,8 +47,6 @@ GUIDE_HOG = [
              "Scale: image pyramid step size for multi-scale detection."},
 ]
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
 
 class State:
     cap = None
@@ -57,6 +58,7 @@ class State:
     show_boxes = DEFAULTS["show_boxes"]
     use_camera = True
     cat_mode = False
+    pause = False
     fallback_image = None
 
 
@@ -101,12 +103,11 @@ def main():
 
     if not state.use_camera:
         print("Warning: Could not open camera, using fallback image")
-        state.frame_width = 640
-        state.frame_height = 480
 
     # Load fallback image
     state.fallback_image = load_fallback_image()
     if not state.use_camera:
+        state.frame_height, state.frame_width = state.fallback_image.shape[:2]
         state.cat_mode = True
 
     # Initialize HOG detector
@@ -125,70 +126,43 @@ def main():
                           format=dpg.mvFormat_Float_rgba, tag="detection_texture")
 
     with dpg.window(label="HOG Person Detection Demo", tag="main_window"):
-        def _extra_reset():
-            if dpg.does_item_exist("stride_slider"):
-                dpg.set_value("stride_slider", DEFAULTS["win_stride"])
-
         add_global_controls(
             DEFAULTS, state,
             cat_mode_callback=make_state_updater(state, "cat_mode"),
-            reset_extra=_extra_reset,
+            pause_callback=make_state_updater(state, "pause"),
             guide=GUIDE_HOG, guide_title="HOG Person Detection",
         )
 
         dpg.add_separator()
 
         # Detection parameters
-        with dpg.collapsing_header(label="Detection Parameters", default_open=True):
-            dpg.add_checkbox(
-                label="Show Boxes", default_value=state.show_boxes,
-                callback=make_state_updater(state, "show_boxes"),
-                tag="show_boxes_checkbox",
-            )
-            with dpg.table(header_row=False,
-                           borders_innerV=False, borders_outerV=False,
-                           borders_innerH=False, borders_outerH=False,
-                           policy=dpg.mvTable_SizingFixedFit):
-                dpg.add_table_column()  # label (auto-fit)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-                dpg.add_table_column()  # label (auto-fit)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-                with dpg.table_row():
-                    dpg.add_text("Win Stride")
-                    dpg.add_slider_int(tag="stride_slider", default_value=state.win_stride,
-                                       min_value=4, max_value=16,
-                                       callback=make_state_updater(state, "win_stride"),
-                                       width=80)
-                    dpg.add_button(label="R",
-                                   callback=make_reset_callback(state, "win_stride", "stride_slider", DEFAULTS["win_stride"]),
-                                   width=25)
-                    dpg.add_spacer(width=20)
-                    dpg.add_text("Scale")
-                    dpg.add_slider_float(tag="scale_slider", default_value=state.scale,
-                                         min_value=1.01, max_value=1.5,
-                                         callback=make_state_updater(state, "scale"),
-                                         width=80, format="%.2f")
-                    dpg.add_button(label="R",
-                                   callback=make_reset_callback(state, "scale", "scale_slider", DEFAULTS["scale"]),
-                                   width=25)
-
-                with dpg.table_row():
-                    dpg.add_text("Hit Threshold")
-                    dpg.add_slider_float(tag="threshold_slider", default_value=state.hit_threshold,
-                                         min_value=0.0, max_value=1.0,
-                                         callback=make_state_updater(state, "hit_threshold"),
-                                         width=80, format="%.2f")
-                    dpg.add_button(label="R",
-                                   callback=make_reset_callback(state, "hit_threshold", "threshold_slider", DEFAULTS["hit_threshold"]),
-                                   width=25)
-                    dpg.add_spacer(width=20)
-                    dpg.add_spacer(width=80)
-                    dpg.add_spacer(width=100)
-                    dpg.add_spacer(width=30)
+        with dpg.group(horizontal=True):
+            with control_panel("Detection Parameters", width=350, height=170,
+                               color=(150, 200, 255)):
+                dpg.add_checkbox(
+                    label="Show Boxes", default_value=state.show_boxes,
+                    callback=make_state_updater(state, "show_boxes"),
+                    tag="show_boxes_checkbox",
+                )
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Win Stride", "win_stride_slider", DEFAULTS["win_stride"],
+                        4, 16, make_state_updater(state, "win_stride"),
+                        make_reset_callback(state, "win_stride", "win_stride_slider", DEFAULTS["win_stride"]),
+                        slider_type="int", width=80)
+                    add_parameter_row(
+                        "Scale", "scale_slider", DEFAULTS["scale"],
+                        1.01, 1.5, make_state_updater(state, "scale"),
+                        make_reset_callback(state, "scale", "scale_slider", DEFAULTS["scale"]),
+                        format_str="%.2f", width=80)
+                    add_parameter_row(
+                        "Hit Threshold", "hit_threshold_slider", DEFAULTS["hit_threshold"],
+                        0.0, 1.0, make_state_updater(state, "hit_threshold"),
+                        make_reset_callback(state, "hit_threshold", "hit_threshold_slider", DEFAULTS["hit_threshold"]),
+                        format_str="%.2f", width=80)
 
         dpg.add_separator()
         dpg.add_text("", tag="status_text")
@@ -206,25 +180,27 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
-        frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode,
-                          (state.frame_width, state.frame_height))
-        if frame is None:
-            continue
+        if not state.pause:
+            frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode,
+                              (state.frame_width, state.frame_height))
+            if frame is None:
+                dpg.render_dearpygui_frame()
+                continue
 
-        # Detect people
-        stride = (state.win_stride, state.win_stride)
-        boxes, weights = hog.detectMultiScale(frame, winStride=stride, scale=state.scale, hitThreshold=state.hit_threshold)
+            # Detect people
+            stride = (state.win_stride, state.win_stride)
+            boxes, weights = hog.detectMultiScale(frame, winStride=stride, scale=state.scale, hitThreshold=state.hit_threshold)
 
-        boxes = np.array([[x, y, x + w, y + h] for (x, y, w, h) in boxes])
+            boxes = np.array([[x, y, x + w, y + h] for (x, y, w, h) in boxes])
 
-        if state.show_boxes:
-            for (xA, yA, xB, yB) in boxes:
-                cv2.rectangle(frame, (xA, yA), (xB, yB), (0, 255, 0), 2)
+            if state.show_boxes:
+                for (xA, yA, xB, yB) in boxes:
+                    cv2.rectangle(frame, (xA, yA), (xB, yB), (0, 255, 0), 2)
 
-        dpg.set_value("detection_texture", convert_cv_to_dpg(frame))
+            dpg.set_value("detection_texture", convert_cv_to_dpg(frame))
 
-        status = f"People Detected: {len(boxes)}  |  Stride: {state.win_stride}  |  Scale: {state.scale:.2f}"
-        dpg.set_value("status_text", status)
+            status = f"People Detected: {len(boxes)}  |  Stride: {state.win_stride}  |  Scale: {state.scale:.2f}"
+            dpg.set_value("status_text", status)
 
         dpg.render_dearpygui_frame()
 

@@ -16,6 +16,7 @@ from utils.demo_ui import add_global_controls, load_fonts, setup_viewport, make_
 
 # Default values
 DEFAULTS = {
+    "pause": False,
     "ui_scale": 1.5,
 }
 
@@ -44,6 +45,7 @@ class State:
     frame_height = 0
     use_camera = True
     cat_mode = False
+    pause = False
     fallback_image = None
 
 
@@ -173,8 +175,12 @@ def main():
     # Create main window
     with dpg.window(label="Starter Demo", tag="main_window"):
         # Global controls
-        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"),
-                            guide=GUIDE_STARTER, guide_title="Starter Template")
+        add_global_controls(
+            DEFAULTS, state,
+            cat_mode_callback=make_state_updater(state, "cat_mode"),
+            pause_callback=make_state_updater(state, "pause"),
+            guide=GUIDE_STARTER, guide_title="Starter Template",
+        )
 
         dpg.add_separator()
         dpg.add_spacer(height=5)
@@ -206,15 +212,16 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
-        img = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
+        if not state.pause:
+            img = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode)
 
-        if img is not None:
-            # Process the frame (student code goes in process_frame!)
-            output = process_frame(img)
+            if img is not None:
+                # Process the frame (student code goes in process_frame!)
+                output = process_frame(img)
 
-            # Update the display textures
-            dpg.set_value("input_texture", convert_cv_to_dpg(img))
-            dpg.set_value("output_texture", convert_cv_to_dpg(output))
+                # Update the display textures
+                dpg.set_value("input_texture", convert_cv_to_dpg(img))
+                dpg.set_value("output_texture", convert_cv_to_dpg(output))
 
         dpg.render_dearpygui_frame()
 

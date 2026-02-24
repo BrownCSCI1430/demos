@@ -9,12 +9,14 @@ Features:
 """
 
 import cv2
-import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, add_global_controls, make_reset_callback
+from utils.demo_ui import (
+    load_fonts, setup_viewport, make_state_updater, add_global_controls, make_reset_callback,
+    control_panel, create_parameter_table, add_parameter_row,
+)
 from utils.demo_kernels import KERNEL_PRESETS as _KERNEL_PRESETS, SIGMA_KERNELS, ZERO_DC_KERNELS, create_kernel, resize_kernel
 
 # Default values
@@ -24,6 +26,7 @@ DEFAULTS = {
     "normalize_kernel": True,
     "gaussian_sigma": 1.0,
     "show_original": True,
+    "pause": False,
     "ui_scale": 1.5,
 }
 
@@ -56,7 +59,6 @@ GUIDE_FILTER = [
              "Kernel size must be odd so the center pixel is well-defined."},
 ]
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Available kernel presets (add "Custom" for interactive editor)
 KERNEL_PRESETS = _KERNEL_PRESETS + ["Custom"]
@@ -69,6 +71,7 @@ class State:
     input_ratio = 0.4
     use_camera = True
     cat_mode = False
+    pause = False
     fallback_image = None
     show_original = DEFAULTS["show_original"]
 
@@ -252,8 +255,8 @@ def modify_cell(row, col, delta):
     # Switch to Custom mode when editing
     if state.kernel_type != "Custom":
         state.kernel_type = "Custom"
-        if dpg.does_item_exist("kernel_combo"):
-            dpg.set_value("kernel_combo", "Custom")
+        if dpg.does_item_exist("kernel_type_combo"):
+            dpg.set_value("kernel_type_combo", "Custom")
 
     draw_kernel_editor()
 
@@ -280,8 +283,8 @@ def update_kernel_type(sender, value):
     draw_kernel_editor()
 
     # Show/hide sigma slider based on kernel type
-    if dpg.does_item_exist("sigma_slider"):
-        dpg.configure_item("sigma_slider", show=(value in SIGMA_KERNELS))
+    if dpg.does_item_exist("gaussian_sigma_slider"):
+        dpg.configure_item("gaussian_sigma_slider", show=(value in SIGMA_KERNELS))
 
 
 def update_gaussian_sigma(sender, value):
@@ -383,43 +386,44 @@ def main():
 
     with dpg.window(label="Interactive Filter Demo", tag="main_window"):
         def _extra_reset():
-            for tag, key in [("kernel_combo", "kernel_type"),
-                             ("size_slider", "kernel_size"),
-                             ("sigma_slider", "gaussian_sigma")]:
-                if dpg.does_item_exist(tag):
-                    dpg.set_value(tag, DEFAULTS[key])
             update_kernel_type(None, DEFAULTS["kernel_type"])
 
-        add_global_controls(DEFAULTS, state, make_state_updater(state, "cat_mode"),
-                            reset_extra=_extra_reset,
-                            guide=GUIDE_FILTER, guide_title="Image Filtering")
+        add_global_controls(
+            DEFAULTS, state,
+            cat_mode_callback=make_state_updater(state, "cat_mode"),
+            pause_callback=make_state_updater(state, "pause"),
+            reset_extra=_extra_reset,
+            guide=GUIDE_FILTER, guide_title="Image Filtering",
+        )
 
         dpg.add_separator()
 
-        with dpg.collapsing_header(label="Kernel", default_open=True):
-            with dpg.group(horizontal=True):
+        with dpg.group(horizontal=True):
+            with control_panel("Kernel", width=350, height=160,
+                               color=(150, 200, 255)):
                 dpg.add_combo(
                     label="Kernel",
                     items=KERNEL_PRESETS,
                     default_value=state.kernel_type,
                     callback=update_kernel_type,
-                    tag="kernel_combo",
-                    width=120
+                    tag="kernel_type_combo",
+                    width=150
                 )
-                dpg.add_slider_int(
-                    label="Size",
-                    default_value=state.kernel_size,
-                    min_value=3, max_value=15,
-                    callback=update_kernel_size,
-                    tag="size_slider",
-                    width=100
-                )
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Size", "kernel_size_slider", DEFAULTS["kernel_size"],
+                        3, 15, update_kernel_size,
+                        make_reset_callback(state, "kernel_size", "kernel_size_slider", DEFAULTS["kernel_size"]),
+                        slider_type="int", width=80)
                 dpg.add_slider_float(
                     label="Sigma",
                     default_value=state.gaussian_sigma,
                     min_value=0.1, max_value=5.0,
                     callback=update_gaussian_sigma,
-                    tag="sigma_slider",
+                    tag="gaussian_sigma_slider",
                     width=80,
                     show=(state.kernel_type in SIGMA_KERNELS)
                 )
@@ -496,7 +500,7 @@ def main():
                             state.kernel_values[cell[0], cell[1]] = 0
                             if state.kernel_type != "Custom":
                                 state.kernel_type = "Custom"
-                                dpg.set_value("kernel_combo", "Custom")
+                                dpg.set_value("kernel_type_combo", "Custom")
                             draw_kernel_editor()
                         else:
                             delta = 1.0 if shift_held else 0.1
@@ -507,31 +511,32 @@ def main():
                             state.kernel_values[cell[0], cell[1]] = 0
                             if state.kernel_type != "Custom":
                                 state.kernel_type = "Custom"
-                                dpg.set_value("kernel_combo", "Custom")
+                                dpg.set_value("kernel_type_combo", "Custom")
                             draw_kernel_editor()
                         else:
                             delta = -1.0 if shift_held else -0.1
                             modify_cell(cell[0], cell[1], delta)
 
         # Process and display frame
-        gray, filtered = process_frame()
+        if not state.pause:
+            gray, filtered = process_frame()
 
-        if gray is not None and filtered is not None:
-            dpg.set_value("input_texture", convert_cv_to_dpg(gray))
-            dpg.set_value("filtered_texture", convert_cv_to_dpg(filtered))
+            if gray is not None and filtered is not None:
+                dpg.set_value("input_texture", convert_cv_to_dpg(gray))
+                dpg.set_value("filtered_texture", convert_cv_to_dpg(filtered))
 
-            kernel_sum = state.kernel_values.sum() if state.kernel_values is not None else 0
-            status = f"Kernel: {state.kernel_type} ({state.kernel_size}x{state.kernel_size})"
-            if state.hovered_cell:
-                row, col = state.hovered_cell
-                val = state.kernel_values[row, col]
-                status += f"  |  Cell ({row},{col}): {val:.6f}"
-            dpg.set_value("status_text", status)
+                kernel_sum = state.kernel_values.sum() if state.kernel_values is not None else 0
+                status = f"Kernel: {state.kernel_type} ({state.kernel_size}x{state.kernel_size})"
+                if state.hovered_cell:
+                    row, col = state.hovered_cell
+                    val = state.kernel_values[row, col]
+                    status += f"  |  Cell ({row},{col}): {val:.6f}"
+                dpg.set_value("status_text", status)
 
-            sum_text = f"Sum: {kernel_sum:.4f}"
-            if state.normalize_kernel:
-                sum_text += "\n(normalized to 1.0)"
-            dpg.set_value("kernel_sum_text", sum_text)
+                sum_text = f"Sum: {kernel_sum:.4f}"
+                if state.normalize_kernel:
+                    sum_text += "\n(normalized to 1.0)"
+                dpg.set_value("kernel_sum_text", sum_text)
 
         dpg.render_dearpygui_frame()
 

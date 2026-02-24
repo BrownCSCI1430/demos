@@ -22,7 +22,7 @@ from utils.demo_ui import (
     load_fonts, bind_mono_font,
     setup_viewport, make_state_updater, make_reset_callback,
     create_parameter_table, add_parameter_row,
-    add_global_controls,
+    add_global_controls, control_panel,
 )
 
 
@@ -187,7 +187,7 @@ def _sync_sliders_to_state():
         "trans_x_slider": state.trans_x,
         "trans_y_slider": state.trans_y,
         "trans_z_slider": state.trans_z,
-        "focal_slider": state.focal_length,
+        "focal_length_slider": state.focal_length,
         "sensor_w_slider": state.sensor_w,
         "sensor_h_slider": state.sensor_h,
         "img_w_slider": state.img_w,
@@ -209,9 +209,6 @@ def _camera_extra_reset():
         dpg.set_value("ref_frame_combo", "World")
     if dpg.does_item_exist("symbolic_toggle"):
         dpg.set_value("symbolic_toggle", False)
-    # focal_slider doesn't match focal_length_slider convention
-    if dpg.does_item_exist("focal_slider"):
-        dpg.set_value("focal_slider", DEFAULTS["focal_length"])
     _sync_sliders_to_state()
 
 
@@ -323,30 +320,30 @@ def main():
         # --- Parameter controls in columns ---
         with dpg.group(horizontal=True):
             # View Options
-            with dpg.child_window(width=220, height=280, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="View Options", default_open=True):
-                    dpg.add_text("Reference Frame:")
-                    dpg.add_combo(
-                        items=["World", "Camera"],
-                        default_value="World",
-                        callback=on_reference_frame_change,
-                        tag="ref_frame_combo",
-                        width=100,
-                    )
-                    dpg.add_spacer(height=5)
-                    dpg.add_checkbox(
-                        label="Show matrices\nalgebraically",
-                        default_value=False,
-                        callback=_on_symbolic_toggle,
-                        tag="symbolic_toggle",
-                    )
+            with control_panel("View Options", width=220, height=280,
+                               color=(255, 220, 100)):
+                dpg.add_text("Reference Frame:")
+                dpg.add_combo(
+                    items=["World", "Camera"],
+                    default_value="World",
+                    callback=on_reference_frame_change,
+                    tag="ref_frame_combo",
+                    width=100,
+                )
+                dpg.add_spacer(height=5)
+                dpg.add_checkbox(
+                    label="Show matrices\nalgebraically",
+                    default_value=False,
+                    callback=_on_symbolic_toggle,
+                    tag="symbolic_toggle",
+                )
 
             dpg.add_spacer(width=10)
 
             # Column 1: Pixel-space projection
-            with dpg.child_window(width=360, height=280, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Projection to Pixels", default_open=True):
-                    with create_parameter_table():
+            with control_panel("Projection to Pixels", width=360, height=280,
+                               color=(150, 200, 255)):
+                with create_parameter_table():
                         dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
@@ -380,17 +377,17 @@ def main():
             dpg.add_spacer(width=10)
 
             # Column 2: Physical camera
-            with dpg.child_window(width=360, height=310, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Physical Camera", default_open=True):
-                    with create_parameter_table():
+            with control_panel("Physical Camera", width=360, height=310,
+                               color=(220, 180, 100)):
+                with create_parameter_table():
                         dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
 
-                        add_parameter_row("f (mm)", "focal_slider", DEFAULTS["focal_length"],
+                        add_parameter_row("f (mm)", "focal_length_slider", DEFAULTS["focal_length"],
                                           5.0, 200.0,
                                           make_state_updater(state, "focal_length"),
-                                          make_reset_callback(state, "focal_length", "focal_slider", DEFAULTS["focal_length"]),
+                                          make_reset_callback(state, "focal_length", "focal_length_slider", DEFAULTS["focal_length"]),
                                           format_str="%.1f")
                         add_parameter_row("Sensor W (mm)", "sensor_w_slider", DEFAULTS["sensor_w"],
                                           5.0, 100.0,
@@ -410,9 +407,9 @@ def main():
             dpg.add_spacer(width=10)
 
             # Column 3: Extrinsic
-            with dpg.child_window(width=360, height=280, border=False, no_scrollbar=True):
-                with dpg.collapsing_header(label="Extrinsic [R|t]", default_open=True):
-                    with create_parameter_table():
+            with control_panel("Extrinsic [R|t]", width=360, height=280,
+                               color=(150, 255, 150)):
+                with create_parameter_table():
                         dpg.add_table_column()  # label (auto-fit)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=170)
                         dpg.add_table_column(width_fixed=True, init_width_or_weight=25)

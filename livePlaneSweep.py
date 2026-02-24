@@ -649,7 +649,12 @@ def main():
     # ── Window ────────────────────────────────────────────────────────────────
     with dpg.window(label="Plane Sweep Stereo Demo", tag="main_window"):
 
+        def _extra_reset():
+            if dpg.does_item_exist("mode_radio"):
+                dpg.set_value("mode_radio", DEFAULTS["mode"])
+
         add_global_controls(DEFAULTS, state,
+                            reset_extra=_extra_reset,
                             guide=GUIDE_PLANE_SWEEP, guide_title="Plane Sweep Stereo")
         dpg.add_separator()
 

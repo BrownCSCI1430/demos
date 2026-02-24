@@ -7,12 +7,14 @@ This version: Dear PyGui sliders for interactive face detection parameters
 """
 
 import cv2
-import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
-from utils.demo_ui import load_fonts, setup_viewport, make_state_updater, make_reset_callback, add_global_controls
+from utils.demo_ui import (
+    load_fonts, setup_viewport, make_state_updater, make_reset_callback,
+    add_global_controls, control_panel, create_parameter_table, add_parameter_row,
+)
 
 # Default values
 DEFAULTS = {
@@ -21,6 +23,7 @@ DEFAULTS = {
     "min_size": 30,
     "show_boxes": True,
     "cascade_type": "frontalface_default",
+    "pause": False,
     "ui_scale": 1.5,
 }
 
@@ -46,7 +49,6 @@ GUIDE_VIOLA_JONES = [
              "Min Size: smallest detectable face in pixels."},
 ]
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Cascade options
 CASCADES = {
@@ -71,6 +73,7 @@ class State:
     face_cascade = None
     use_camera = True
     cat_mode = False
+    pause = False
     fallback_image = None
 
 
@@ -126,12 +129,11 @@ def main():
 
     if not state.use_camera:
         print("Warning: Could not open camera, using fallback image")
-        state.frame_width = 640
-        state.frame_height = 480
 
     # Load fallback image
     state.fallback_image = load_fallback_image()
     if not state.use_camera:
+        state.frame_height, state.frame_width = state.fallback_image.shape[:2]
         state.cat_mode = True
 
     # Initialize cascade
@@ -150,17 +152,12 @@ def main():
 
     with dpg.window(label="Viola-Jones Face Detection Demo", tag="main_window"):
         def _extra_reset():
-            for tag, key in [("scale_slider", "scale_factor"),
-                             ("neighbors_slider", "min_neighbors"),
-                             ("size_slider", "min_size"),
-                             ("cascade_combo", "cascade_type")]:
-                if dpg.does_item_exist(tag):
-                    dpg.set_value(tag, DEFAULTS[key])
             load_cascade(DEFAULTS["cascade_type"])
 
         add_global_controls(
             DEFAULTS, state,
             cat_mode_callback=make_state_updater(state, "cat_mode"),
+            pause_callback=make_state_updater(state, "pause"),
             reset_extra=_extra_reset,
             guide=GUIDE_VIOLA_JONES, guide_title="Viola-Jones Face Detection",
         )
@@ -168,63 +165,40 @@ def main():
         dpg.add_separator()
 
         # Detection parameters
-        with dpg.collapsing_header(label="Detection Parameters", default_open=True):
-            with dpg.group(horizontal=True):
-                dpg.add_combo(
-                    label="Cascade", items=list(CASCADES.keys()),
-                    default_value=state.cascade_type,
-                    callback=update_cascade_type,
-                    tag="cascade_combo", width=150,
-                )
-                dpg.add_checkbox(
-                    label="Show Boxes", default_value=state.show_boxes,
-                    callback=make_state_updater(state, "show_boxes"),
-                    tag="show_boxes_checkbox",
-                )
-            with dpg.table(header_row=False,
-                           borders_innerV=False, borders_outerV=False,
-                           borders_innerH=False, borders_outerH=False,
-                           policy=dpg.mvTable_SizingFixedFit):
-                dpg.add_table_column()  # label (auto-fit)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=20)
-                dpg.add_table_column()  # label (auto-fit)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
-                dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-                with dpg.table_row():
-                    dpg.add_text("Scale Factor")
-                    dpg.add_slider_float(tag="scale_slider", default_value=state.scale_factor,
-                                         min_value=1.01, max_value=2.0,
-                                         callback=make_state_updater(state, "scale_factor"),
-                                         width=80, format="%.2f")
-                    dpg.add_button(label="R",
-                                   callback=make_reset_callback(state, "scale_factor", "scale_slider", DEFAULTS["scale_factor"]),
-                                   width=25)
-                    dpg.add_spacer(width=20)
-                    dpg.add_text("Min Neighbors")
-                    dpg.add_slider_int(tag="neighbors_slider", default_value=state.min_neighbors,
-                                       min_value=1, max_value=10,
-                                       callback=make_state_updater(state, "min_neighbors"),
-                                       width=80)
-                    dpg.add_button(label="R",
-                                   callback=make_reset_callback(state, "min_neighbors", "neighbors_slider", DEFAULTS["min_neighbors"]),
-                                   width=25)
-
-                with dpg.table_row():
-                    dpg.add_text("Min Size")
-                    dpg.add_slider_int(tag="minsize_slider", default_value=state.min_size,
-                                       min_value=10, max_value=200,
-                                       callback=make_state_updater(state, "min_size"),
-                                       width=80)
-                    dpg.add_button(label="R",
-                                   callback=make_reset_callback(state, "min_size", "minsize_slider", DEFAULTS["min_size"]),
-                                   width=25)
-                    dpg.add_spacer(width=20)
-                    dpg.add_spacer(width=80)
-                    dpg.add_spacer(width=100)
-                    dpg.add_spacer(width=30)
+        with dpg.group(horizontal=True):
+            with control_panel("Detection Parameters", width=400, height=200,
+                               color=(150, 200, 255)):
+                with dpg.group(horizontal=True):
+                    dpg.add_combo(
+                        label="Cascade", items=list(CASCADES.keys()),
+                        default_value=state.cascade_type,
+                        callback=update_cascade_type,
+                        tag="cascade_type_combo", width=150,
+                    )
+                    dpg.add_checkbox(
+                        label="Show Boxes", default_value=state.show_boxes,
+                        callback=make_state_updater(state, "show_boxes"),
+                        tag="show_boxes_checkbox",
+                    )
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=100)
+                    dpg.add_table_column(width_fixed=True, init_width_or_weight=25)
+                    add_parameter_row(
+                        "Scale Factor", "scale_factor_slider", DEFAULTS["scale_factor"],
+                        1.01, 2.0, make_state_updater(state, "scale_factor"),
+                        make_reset_callback(state, "scale_factor", "scale_factor_slider", DEFAULTS["scale_factor"]),
+                        format_str="%.2f", width=80)
+                    add_parameter_row(
+                        "Min Neighbors", "min_neighbors_slider", DEFAULTS["min_neighbors"],
+                        1, 10, make_state_updater(state, "min_neighbors"),
+                        make_reset_callback(state, "min_neighbors", "min_neighbors_slider", DEFAULTS["min_neighbors"]),
+                        slider_type="int", width=80)
+                    add_parameter_row(
+                        "Min Size", "min_size_slider", DEFAULTS["min_size"],
+                        10, 200, make_state_updater(state, "min_size"),
+                        make_reset_callback(state, "min_size", "min_size_slider", DEFAULTS["min_size"]),
+                        slider_type="int", width=80)
 
         dpg.add_separator()
         dpg.add_text("", tag="status_text")
@@ -242,32 +216,34 @@ def main():
 
     # Main loop
     while dpg.is_dearpygui_running():
-        frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode,
-                          (state.frame_width, state.frame_height))
-        if frame is None:
-            continue
+        if not state.pause:
+            frame = get_frame(state.cap, state.fallback_image, state.use_camera, state.cat_mode,
+                              (state.frame_width, state.frame_height))
+            if frame is None:
+                dpg.render_dearpygui_frame()
+                continue
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # Detect faces
-        if state.face_cascade is not None:
-            detected = state.face_cascade.detectMultiScale(
-                gray,
-                scaleFactor=state.scale_factor,
-                minNeighbors=state.min_neighbors,
-                minSize=(state.min_size, state.min_size)
-            )
-        else:
-            detected = []
+            # Detect faces
+            if state.face_cascade is not None:
+                detected = state.face_cascade.detectMultiScale(
+                    gray,
+                    scaleFactor=state.scale_factor,
+                    minNeighbors=state.min_neighbors,
+                    minSize=(state.min_size, state.min_size)
+                )
+            else:
+                detected = []
 
-        if state.show_boxes:
-            for (x, y, w, h) in detected:
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (127, 0, 255), 2)
+            if state.show_boxes:
+                for (x, y, w, h) in detected:
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), (127, 0, 255), 2)
 
-        dpg.set_value("detection_texture", convert_cv_to_dpg(frame))
+            dpg.set_value("detection_texture", convert_cv_to_dpg(frame))
 
-        status = f"Detections: {len(detected)}  |  Scale: {state.scale_factor:.2f}  |  Neighbors: {state.min_neighbors}"
-        dpg.set_value("status_text", status)
+            status = f"Detections: {len(detected)}  |  Scale: {state.scale_factor:.2f}  |  Neighbors: {state.min_neighbors}"
+            dpg.set_value("status_text", status)
 
         dpg.render_dearpygui_frame()
 
