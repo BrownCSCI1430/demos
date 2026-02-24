@@ -3,6 +3,7 @@ Shared Dear PyGui UI utilities for CSCI 1430 computer vision demos.
 Contains callback factories, UI component builders, and viewport setup.
 """
 
+import contextlib
 import os
 import dearpygui.dearpygui as dpg
 
@@ -211,6 +212,60 @@ def make_reset_all_callback(defaults, state, extra_reset=None):
 # =============================================================================
 # UI Component Builders
 # =============================================================================
+
+_panel_themes = {}  # cache: RGB tuple → DPG theme id
+
+
+def _get_header_theme(color):
+    """Get or create a DPG theme for a collapsing_header with colored text."""
+    key = tuple(color)
+    if key not in _panel_themes:
+        with dpg.theme() as t:
+            with dpg.theme_component(dpg.mvCollapsingHeader):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, color,
+                                    category=dpg.mvThemeCat_Core)
+        _panel_themes[key] = t
+    return _panel_themes[key]
+
+
+@contextlib.contextmanager
+def control_panel(label, width=0, height=0, color=None,
+                  default_open=True, tag=None, border=True):
+    """Collapsible control panel with colored title and optional scroll.
+
+    Combines three DPG widgets:
+      outer child_window (size + border) →
+        collapsing_header (collapse/expand + themed text color) →
+          inner child_window (scrollbar when content overflows)
+
+    Args:
+        label:        Panel title text on the collapsing header.
+        width:        Outer width in pixels. 0 = auto-fill.
+        height:       Outer height in pixels. 0 = auto-fit to content.
+        color:        RGB tuple for header text, e.g. (150, 200, 255).
+                      None = default theme text color.
+        default_open: Whether the panel starts expanded.
+        tag:          Optional DPG tag for the outer child_window
+                      (useful for show/hide via configure_item).
+        border:       Visible border on outer container.
+
+    Yields:
+        The collapsing_header DPG id.
+    """
+    outer_kw = {"width": width, "border": border, "no_scrollbar": True}
+    if height > 0:
+        outer_kw["height"] = height
+    if tag is not None:
+        outer_kw["tag"] = tag
+
+    with dpg.child_window(**outer_kw):
+        with dpg.collapsing_header(label=label,
+                                   default_open=default_open) as hdr:
+            if color is not None:
+                dpg.bind_item_theme(hdr, _get_header_theme(color))
+            with dpg.child_window(border=False):
+                yield hdr
+
 
 def add_global_controls(defaults, state, cat_mode_callback=None,
                         pause_callback=None, reset_extra=None,

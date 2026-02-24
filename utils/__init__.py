@@ -22,6 +22,7 @@ from .demo_ui import (
     add_global_controls,
     add_guide_button,
     create_guide_window,
+    control_panel,
 )
 
 from .demo_kernels import (

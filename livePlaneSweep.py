@@ -31,13 +31,12 @@ from utils.demo_3d import (
     make_frustum_mesh, make_axis_mesh,
     make_sphere, make_cube, create_default_scene,
     make_ground_grid, raycast_scene,
-    format_matrix,
 )
 from utils.demo_utils import convert_cv_to_dpg
 from utils.demo_ui import (
     load_fonts, setup_viewport, make_state_updater, make_reset_callback,
     create_parameter_table, add_parameter_row,
-    add_global_controls, bind_mono_font,
+    add_global_controls, bind_mono_font, control_panel,
 )
 
 
@@ -51,29 +50,65 @@ DEFAULTS = {
     "cam_convergence": 0.15,   # 0 = fronto-parallel, 1 = max toe-in (25°)
     "cam_distance": 5.0,       # other camera z (ref stays at z=5)
     "patch_size": 7,           # NCC patch width in pixels (squared for area)
+    "epipole_weight": 1.0,        # α: weight of epipole term in H(λ)
+    "mode": "Two-View Geometry",  # "Two-View Geometry" or "Plane Sweep"
     "ui_scale": 1.5,
 }
 
+MODE_ITEMS = ["Two-View Geometry", "Plane Sweep"]
+
 GUIDE_PLANE_SWEEP = [
-    {"title": "Plane sweep stereo",
-     "body": "Evaluate depth hypotheses by warping one image to the other at "
-             "different depths \u03bb. When the warp aligns the views well, "
-             "the NCC score peaks. The 3D scene contains cubes, sphere, and cylinder "
-             "at varying depths — slide to find the best-fit plane."},
-    {"title": "H(\u03bb) = \u03bbB + ae\u2083\u1d40",
-     "body": "B = K_other \u00b7 R_rel \u00b7 inv(K_ref)  is the homography at infinity "
-             "(handles rotation + intrinsics only, no depth).\n"
-             "a = K_other \u00b7 C_ref + t_other  encodes the epipolar baseline. "
-             "Sweeping \u03bb scales the rotation component while the baseline stays fixed."},
-    {"title": "NCC similarity",
-     "body": "Normalized Cross-Correlation measures how well two image patches "
-             "align: -1 (anti-correlated) to +1 (perfect match). "
-             "The NCC-vs-\u03bb plot shows peaks where a plane at depth \u03bb fits the scene well."},
-    {"title": "Connection to DLT",
-     "body": "H(\u03bb) uses the same camera matrices that DLT estimates. "
-             "B comes from intrinsics and relative rotation; a encodes the "
-             "camera separation. Accurate calibration is critical for stereo \u2014 "
-             "errors in M propagate directly into depth estimates."},
+    {"title": "Two modes",
+     "body": "This demo has two modes.\n\n"
+             "Two-View Geometry: explore how two cameras relate \u2014 "
+             "epipoles, epipolar lines, and the homography warp between views. "
+             "Toggle the Homography warp checkbox to see the other image in its "
+             "own coordinate frame vs. warped into the reference frame.\n\n"
+             "Plane Sweep: evaluate depth hypotheses by sweeping \u03bb. "
+             "The NCC curve and \u03bb map show where the warp best aligns the views."},
+    {"title": "H(\u03bb) = \u03bb\u00b7B + \u03b1\u00b7a e\u2083\u1d40",
+     "body": "A family of homographies parameterized by depth \u03bb.\n\n"
+             "B = K\u2082 R_rel K\u2081\u207b\u00b9 is the homography at infinity: "
+             "unproject a ref pixel to a ray, rotate into the other camera\u2019s "
+             "frame, reproject. This handles rotation and intrinsics only.\n\n"
+             "a = K\u2082 c\u2081 + t\u2082 is the epipole \u2014 the projection of "
+             "the reference camera\u2019s centre into the other view. The term "
+             "a e\u2083\u1d40 puts a into column 3 only (a constant homogeneous "
+             "translation applied to every pixel, independent of depth).\n\n"
+             "Sweeping \u03bb scales the rotation term while the epipole term "
+             "stays fixed."},
+    {"title": "Epipole \u03b1 slider",
+     "body": "Scales the epipole term: H = \u03bb\u00b7B + \u03b1\u00b7a e\u2083\u1d40.\n\n"
+             "\u03b1 = 1: full correct homography (default).\n"
+             "\u03b1 = 0: rotation-only warp \u2014 no baseline correction. "
+             "Close objects visibly misalign because the translation between "
+             "cameras is ignored.\n\n"
+             "Slide \u03b1 to see how the epipole term gradually corrects for "
+             "camera separation. With Show matrices on, watch column 3 of H "
+             "scale with \u03b1."},
+    {"title": "Epipoles & epipolar lines",
+     "body": "The epipole is where one camera\u2019s centre projects into the "
+             "other\u2019s image. Epipolar lines through any pixel converge at "
+             "the epipole.\n\n"
+             "Homography warp ON: both images share the reference frame, so "
+             "the same epipolar lines appear on both.\n"
+             "Homography warp OFF: each image has its own epipole (e on the "
+             "reference, e\u2032 on the other)."},
+    {"title": "NCC & plane sweep",
+     "body": "Normalized Cross-Correlation (NCC) measures patch alignment: "
+             "\u22121 (anti-correlated) to +1 (perfect match).\n\n"
+             "In Plane Sweep mode, click a pixel to select a patch. The NCC-vs-\u03bb "
+             "curve shows how well the warp aligns that patch at each depth. "
+             "The peak corresponds to the surface\u2019s true \u03bb.\n\n"
+             "The \u03bb map buttons compute per-pixel depth: GT from the rendered "
+             "scene, NCC via exhaustive plane sweep."},
+    {"title": "Connection to calibration",
+     "body": "H(\u03bb) is built directly from the camera projection matrices M "
+             "that DLT estimates. B comes from the intrinsics and relative "
+             "rotation; a encodes the camera separation.\n\n"
+             "Accurate calibration is critical \u2014 errors in M propagate "
+             "directly into depth estimates. Try adjusting the camera sliders "
+             "to see how baseline and convergence affect the geometry."},
 ]
 
 IMG_W, IMG_H = 400, 400
@@ -114,6 +149,7 @@ class Cam:
     M_other = None
     ref_img = None
     other_img = None
+    gt_depth: np.ndarray | None = None
 
 cam = Cam()
 
@@ -144,8 +180,14 @@ def apply_camera_params(baseline, convergence, distance):
     cam.Rt_other = make_lookat_Rt(other_eye, other_target)
     cam.M_ref    = K_SHARED @ cam.Rt_ref
     cam.M_other  = K_SHARED @ cam.Rt_other
-    cam.ref_img  = render_scene(_SCENE, K_SHARED, cam.Rt_ref,
-                                IMG_W, IMG_H, flip_y=True)
+    cam.ref_img, z_buf = render_scene(_SCENE, K_SHARED, cam.Rt_ref,
+                                      IMG_W, IMG_H, flip_y=True,
+                                      return_zbuf=True)
+    # Convert z-buffer to depth map: inf (background) → NaN
+    gt = z_buf.copy()
+    gt[gt == np.inf] = np.nan
+    cam.gt_depth = gt
+
     cam.other_img = render_scene(_SCENE, K_SHARED, cam.Rt_other,
                                  IMG_W, IMG_H, flip_y=True)
 
@@ -311,6 +353,87 @@ _LAM_CURVE = np.linspace(LAM_MIN, LAM_MAX, N_SWEEP)
 
 
 # =============================================================================
+# Matrix / Depth-map helpers
+# =============================================================================
+
+def _fmt_mat(mat):
+    """Format matrix with square brackets for display."""
+    rows, cols = mat.shape
+    lines = []
+    for r in range(rows):
+        cells = "  ".join(f"{mat[r, c]:7.2f}" for c in range(cols))
+        lines.append(f"[ {cells} ]")
+    return "\n".join(lines)
+
+
+def compute_ncc_map(ref, warped, patch_size):
+    """Per-pixel NCC between ref and warped using box-filter convolutions."""
+    r = cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    w = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY).astype(np.float64)
+    valid = (warped.sum(axis=2) > 0).astype(np.float64)
+    w *= valid
+
+    k = (patch_size, patch_size)
+    n = cv2.boxFilter(valid, -1, k, normalize=False)
+
+    r_sum = cv2.boxFilter(r, -1, k, normalize=False)
+    w_sum = cv2.boxFilter(w, -1, k, normalize=False)
+
+    area = float(patch_size * patch_size)
+    r_mean = r_sum / area
+    w_mean = np.divide(w_sum, n, out=np.zeros_like(w_sum), where=n > 0)
+
+    r_c = r - r_mean
+    w_c = (w - w_mean) * valid
+
+    rw = cv2.boxFilter(r_c * w_c, -1, k, normalize=False)
+    rr = cv2.boxFilter(r_c * r_c, -1, k, normalize=False)
+    ww = cv2.boxFilter(w_c * w_c, -1, k, normalize=False)
+
+    denom = np.sqrt(np.maximum(rr * ww, 0.0)) + 1e-10
+    ncc = rw / denom
+    ncc[n < patch_size * 0.5] = -1.0
+    return ncc
+
+
+
+def compute_ncc_depth_image(ref, other, M_ref, M_other, img_w, img_h,
+                             lam_range, patch_size, valid_mask=None):
+    """Per-pixel plane sweep: find depth lambda that maximises NCC at each pixel.
+
+    valid_mask: optional (H,W) bool array.  Only pixels where valid_mask is True
+                will be swept; the rest stay NaN.  When None, all non-black
+                reference pixels are treated as valid.
+    """
+    if valid_mask is None:
+        valid_mask = ref.sum(axis=2) > 0
+
+    best_ncc = np.full((img_h, img_w), -2.0, dtype=np.float64)
+    best_lam = np.full((img_h, img_w), np.nan, dtype=np.float64)
+
+    for lam in lam_range:
+        H = compute_H_lam(M_ref, M_other, lam)
+        w = warp_other_to_ref(other, H, img_w, img_h)
+        ncc_map = compute_ncc_map(ref, w, patch_size)
+        better = valid_mask & (ncc_map > best_ncc)
+        best_ncc[better] = ncc_map[better]
+        best_lam[better] = lam
+
+    return best_lam
+
+
+def depth_to_colormap(depth, lam_min, lam_max):
+    """Colorise a depth map using TURBO.  Close (small lambda) = warm, far = cool."""
+    valid = ~np.isnan(depth)
+    norm = np.zeros_like(depth)
+    norm[valid] = 1.0 - np.clip((depth[valid] - lam_min) / (lam_max - lam_min), 0, 1)
+    gray = (norm * 255).astype(np.uint8)
+    colored = cv2.applyColorMap(gray, cv2.COLORMAP_TURBO)
+    colored[~valid] = 0
+    return colored
+
+
+# =============================================================================
 # NCC Curve Canvas
 # =============================================================================
 
@@ -397,12 +520,19 @@ class State:
     lam_true = LAM_TRUE
     show_epipoles = False
     show_epi_lines = False
+    show_matrices = False
+    show_rectify = True
+    epipole_weight = DEFAULTS["epipole_weight"]
+    mode = DEFAULTS["mode"]
     _prev_cam_baseline = DEFAULTS["cam_baseline"]
     _prev_cam_convergence = DEFAULTS["cam_convergence"]
     _prev_cam_distance = DEFAULTS["cam_distance"]
     _prev_patch_size = DEFAULTS["patch_size"]
     _prev_point = (IMG_W // 2, IMG_H // 2)
     _ncc_curve_cached = None
+    _depth_img = None       # cached depth-map visualisation (BGR)
+    _depth_label = ""       # "GT" or "NCC"
+    _depth_stale = False    # True when camera params changed since last compute
 
 state = State()
 
@@ -416,15 +546,17 @@ if _init_hit is not None:
 # ── Mouse wheel callback for zoom ────────────────────────────────────────────
 def on_mouse_wheel(sender, app_data):
     """Zoom orbit camera on scroll wheel."""
-    if dpg.is_item_hovered("overview_img"):
+    if (dpg.is_item_hovered("gm_overview_img")
+            or dpg.is_item_hovered("sw_overview_img")):
         OvCam.radius = np.clip(OvCam.radius - app_data * 0.5, 3.0, 30.0)
 
 
 # ── Mouse click callback for point selection ────────────────────────────────────
 def on_mouse_click(sender, app_data):
     """Select NCC evaluation point by clicking on either image."""
-    # Accept clicks on either reference or warped image
-    for img_tag in ("ref_img", "warped_img"):
+    # Accept clicks on ref or warped image in either mode
+    for img_tag in ("gm_ref_img", "gm_warped_img",
+                    "sw_ref_img", "sw_warped_img"):
         if dpg.is_item_hovered(img_tag):
             mx, my = dpg.get_mouse_pos(local=False)
             img_pos = dpg.get_item_rect_min(img_tag)
@@ -453,209 +585,310 @@ def on_mouse_click(sender, app_data):
 
 def main():
     dpg.create_context()
-
     load_fonts()
 
-    # Register mouse handlers
     with dpg.handler_registry():
         dpg.add_mouse_wheel_handler(callback=on_mouse_wheel)
         dpg.add_mouse_click_handler(button=0, callback=on_mouse_click)
 
-    # Textures
+    # ── Textures ──────────────────────────────────────────────────────────────
     with dpg.texture_registry(tag="texture_registry"):
-        blank_rgb = [0.0] * (IMG_W * IMG_H * 4)
-        for tag in ["ref_tex", "warped_tex"]:
-            dpg.add_raw_texture(IMG_W, IMG_H, list(blank_rgb),
-                                format=dpg.mvFormat_Float_rgba, tag=tag)
-        blank_curve = [0.0] * (400 * 300 * 4)
-        dpg.add_raw_texture(400, 300, blank_curve,
+        blank = [0.0] * (IMG_W * IMG_H * 4)
+        for t in ["ref_tex", "warped_tex", "depth_tex"]:
+            dpg.add_raw_texture(IMG_W, IMG_H, list(blank),
+                                format=dpg.mvFormat_Float_rgba, tag=t)
+        dpg.add_raw_texture(400, 300, [0.0] * (400 * 300 * 4),
                             format=dpg.mvFormat_Float_rgba, tag="curve_tex")
-        blank_ov = [0.0] * (OVERVIEW_SIZE * OVERVIEW_SIZE * 4)
-        dpg.add_raw_texture(OVERVIEW_SIZE, OVERVIEW_SIZE, blank_ov,
+        dpg.add_raw_texture(OVERVIEW_SIZE, OVERVIEW_SIZE,
+                            [0.0] * (OVERVIEW_SIZE * OVERVIEW_SIZE * 4),
                             format=dpg.mvFormat_Float_rgba, tag="overview_tex")
 
+    # ── Callbacks (defined before UI) ─────────────────────────────────────────
+    def on_preset_selected(sender, value):
+        for name, bl, conv, dist in CAMERA_PRESETS:
+            if name == value:
+                state.cam_baseline = bl
+                state.cam_convergence = conv
+                state.cam_distance = dist
+                dpg.set_value("cam_baseline_slider", bl)
+                dpg.set_value("cam_convergence_slider", conv)
+                dpg.set_value("cam_distance_slider", dist)
+                break
+
+    def update_patch_size(sender, width):
+        odd = int(width) | 1
+        state.patch_size = odd
+        if dpg.does_item_exist("patch_size_display"):
+            dpg.set_value("patch_size_display", f"{odd} px")
+        # Patch size only affects NCC depth, not GT
+        if state._depth_label == "NCC \u03bb (plane sweep)":
+            state._depth_stale = True
+
+    def on_gt_depth(sender=None, app_data=None):
+        if state._depth_label == "GT \u03bb (rendered)" and not state._depth_stale:
+            return
+        state._depth_img = depth_to_colormap(cam.gt_depth, LAM_MIN, LAM_MAX)
+        state._depth_label = "GT \u03bb (rendered)"
+        state._depth_stale = False
+
+    def on_ncc_depth(sender=None, app_data=None):
+        if state._depth_label == "NCC \u03bb (plane sweep)" and not state._depth_stale:
+            return
+        state._depth_label = "Computing NCC \u03bb map..."
+        assert cam.gt_depth is not None
+        valid_mask = ~np.isnan(cam.gt_depth)
+        lam_range = np.linspace(LAM_MIN, LAM_MAX, 60)
+        depth = compute_ncc_depth_image(
+            cam.ref_img, cam.other_img, cam.M_ref, cam.M_other,
+            IMG_W, IMG_H, lam_range, int(state.patch_size),
+            valid_mask=valid_mask)
+        state._depth_img = depth_to_colormap(depth, LAM_MIN, LAM_MAX)
+        state._depth_label = "NCC \u03bb (plane sweep)"
+        state._depth_stale = False
+
+    # ── Window ────────────────────────────────────────────────────────────────
     with dpg.window(label="Plane Sweep Stereo Demo", tag="main_window"):
 
-        # ── Top controls ──────────────────────────────────────────────────────
-        add_global_controls(
-            DEFAULTS, state,
-            guide=GUIDE_PLANE_SWEEP, guide_title="Plane Sweep Stereo",
-        )
+        add_global_controls(DEFAULTS, state,
+                            guide=GUIDE_PLANE_SWEEP, guide_title="Plane Sweep Stereo")
+        dpg.add_separator()
+
+        # ── Control panels (row) ──────────────────────────────────────────
+        with dpg.group(horizontal=True):
+
+            # ── Mode selector (leftmost) ──────────────────────────────────
+            with control_panel("Mode", width=200, height=180,
+                               color=(255, 220, 100)):
+                dpg.add_radio_button(
+                    MODE_ITEMS,
+                    default_value=DEFAULTS["mode"],
+                    callback=make_state_updater(state, "mode"),
+                    tag="mode_radio")
+
+            dpg.add_spacer(width=8)
+
+            # ── Camera (shared, always visible) ───────────────────────────
+            with control_panel("Camera", width=440, height=180,
+                               color=(150, 200, 255)):
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Preset")
+                    dpg.add_combo(PRESET_NAMES, default_value=PRESET_NAMES[2],
+                                  callback=on_preset_selected,
+                                  tag="preset_combo", width=230)
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True,
+                                         init_width_or_weight=240)
+                    dpg.add_table_column(width_fixed=True,
+                                         init_width_or_weight=24)
+                    add_parameter_row(
+                        "Baseline", "cam_baseline_slider",
+                        DEFAULTS["cam_baseline"], 0.0, 5.0,
+                        make_state_updater(state, "cam_baseline"),
+                        make_reset_callback(state, "cam_baseline",
+                                            "cam_baseline_slider",
+                                            DEFAULTS["cam_baseline"]),
+                        format_str="%.2f", width=240)
+                    add_parameter_row(
+                        "Convergence", "cam_convergence_slider",
+                        DEFAULTS["cam_convergence"], 0.0, 1.0,
+                        make_state_updater(state, "cam_convergence"),
+                        make_reset_callback(state, "cam_convergence",
+                                            "cam_convergence_slider",
+                                            DEFAULTS["cam_convergence"]),
+                        format_str="%.2f", width=240)
+                    add_parameter_row(
+                        "Other cam Z", "cam_distance_slider",
+                        DEFAULTS["cam_distance"], 1.0, 8.0,
+                        make_state_updater(state, "cam_distance"),
+                        make_reset_callback(state, "cam_distance",
+                                            "cam_distance_slider",
+                                            DEFAULTS["cam_distance"]),
+                        format_str="%.1f", width=240)
+
+            dpg.add_spacer(width=8)
+
+            # ── Plane Sweep (Mode 2 only) ─────────────────────────────────
+            with control_panel("Plane sweep (depth \u03bb)", width=360, height=180,
+                               color=(220, 180, 100), tag="sweep_panel",
+                               default_open=True):
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True,
+                                         init_width_or_weight=240)
+                    dpg.add_table_column(width_fixed=True,
+                                         init_width_or_weight=24)
+                    add_parameter_row(
+                        "\u03bb", "lam_slider",
+                        DEFAULTS["lam"], LAM_MIN, LAM_MAX,
+                        make_state_updater(state, "lam"),
+                        make_reset_callback(state, "lam", "lam_slider",
+                                            DEFAULTS["lam"]),
+                        format_str="%.2f", width=240)
+                with dpg.group(horizontal=True):
+                    dpg.add_text("NCC patch")
+                    dpg.add_slider_int(
+                        tag="patch_size_slider",
+                        default_value=DEFAULTS["patch_size"],
+                        min_value=1, max_value=31,
+                        callback=update_patch_size, width=160, clamped=True)
+                    dpg.add_text(f"{DEFAULTS['patch_size']} px",
+                                 tag="patch_size_display")
+                dpg.add_separator()
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="GT \u03bb map", callback=on_gt_depth)
+                    dpg.add_button(label="NCC \u03bb map",
+                                   callback=on_ncc_depth)
+
+            dpg.add_spacer(width=8)
+
+            # ── Visualisation (always visible, far right) ────────────────
+            with control_panel("Visualisation", width=300, height=180,
+                               color=(150, 255, 150)):
+                dpg.add_checkbox(
+                    label="Epipoles",
+                    callback=lambda s, v: setattr(state, 'show_epipoles', v))
+                dpg.add_checkbox(
+                    label="Epipolar lines",
+                    callback=lambda s, v: setattr(state, 'show_epi_lines', v))
+                dpg.add_checkbox(
+                    label="Show matrices",
+                    callback=lambda s, v: setattr(state, 'show_matrices', v))
+                dpg.add_checkbox(
+                    label="Homography warp", default_value=True,
+                    callback=lambda s, v: setattr(state, 'show_rectify', v))
+                with create_parameter_table():
+                    dpg.add_table_column()
+                    dpg.add_table_column(width_fixed=True,
+                                         init_width_or_weight=180)
+                    dpg.add_table_column(width_fixed=True,
+                                         init_width_or_weight=24)
+                    add_parameter_row(
+                        "Epipole \u03b1", "epipole_weight_slider",
+                        DEFAULTS["epipole_weight"], 0.0, 1.0,
+                        make_state_updater(state, "epipole_weight"),
+                        make_reset_callback(state, "epipole_weight",
+                                            "epipole_weight_slider",
+                                            DEFAULTS["epipole_weight"]),
+                        format_str="%.2f", width=180)
 
         dpg.add_separator()
 
-        # ── Camera controls: baseline, convergence, presets ──────────────────
-        def on_preset_selected(sender, value):
-            for name, bl, conv, dist in CAMERA_PRESETS:
-                if name == value:
-                    state.cam_baseline = bl
-                    state.cam_convergence = conv
-                    state.cam_distance = dist
-                    dpg.set_value("cam_baseline_slider", bl)
-                    dpg.set_value("cam_convergence_slider", conv)
-                    dpg.set_value("cam_distance_slider", dist)
-                    break
-
-        with dpg.group(horizontal=True):
-            dpg.add_text("Preset")
-            dpg.add_combo(
-                PRESET_NAMES,
-                default_value=PRESET_NAMES[2],   # "Converging (narrow)"
-                callback=on_preset_selected,
-                tag="preset_combo",
-                width=250,
-            )
-
-        with create_parameter_table():
-            dpg.add_table_column()  # label (auto-fit)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=300)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-            add_parameter_row(
-                "Baseline", "cam_baseline_slider",
-                DEFAULTS["cam_baseline"], 0.0, 5.0,
-                make_state_updater(state, "cam_baseline"),
-                make_reset_callback(state, "cam_baseline", "cam_baseline_slider", DEFAULTS["cam_baseline"]),
-                format_str="%.2f",
-                width=300,
-            )
-
-            add_parameter_row(
-                "Convergence", "cam_convergence_slider",
-                DEFAULTS["cam_convergence"], 0.0, 1.0,
-                make_state_updater(state, "cam_convergence"),
-                make_reset_callback(state, "cam_convergence", "cam_convergence_slider", DEFAULTS["cam_convergence"]),
-                format_str="%.2f",
-                width=300,
-            )
-
-            add_parameter_row(
-                "Other cam Z", "cam_distance_slider",
-                DEFAULTS["cam_distance"], 1.0, 8.0,
-                make_state_updater(state, "cam_distance"),
-                make_reset_callback(state, "cam_distance", "cam_distance_slider", DEFAULTS["cam_distance"]),
-                format_str="%.1f",
-                width=300,
-            )
-
-        dpg.add_separator()
-
-        # ── Depth λ slider ───────────────────────────────────────────────────
-        with create_parameter_table():
-            dpg.add_table_column()  # label (auto-fit)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=300)
-            dpg.add_table_column(width_fixed=True, init_width_or_weight=30)
-
-            add_parameter_row(
-                "Depth λ (sweep)", "lam_slider",
-                DEFAULTS["lam"], LAM_MIN, LAM_MAX,
-                make_state_updater(state, "lam"),
-                make_reset_callback(state, "lam", "lam_slider", DEFAULTS["lam"]),
-                format_str="%.2f",
-                width=300,
-            )
-
-        # Patch size slider: odd width in pixels 1..15 (patch is width×width)
-        def update_patch_size(sender, width):
-            odd = int(width) | 1  # snap to odd
-            state.patch_size = odd
-            if dpg.does_item_exist("patch_size_display"):
-                dpg.set_value("patch_size_display", str(odd))
-
-        with dpg.group(horizontal=True):
-            dpg.add_text("NCC patch width")
-            dpg.add_slider_int(
-                tag="patch_size_slider",
-                default_value=DEFAULTS["patch_size"],
-                min_value=1,
-                max_value=31,
-                callback=update_patch_size,
-                width=200,
-                clamped=True,
-            )
-            dpg.add_text(f"{DEFAULTS['patch_size']} px", tag="patch_size_display")
-
-        with dpg.group(horizontal=True):
-            dpg.add_checkbox(label="Show epipoles",
-                             callback=lambda s, v: setattr(state, 'show_epipoles', v))
-            dpg.add_spacer(width=15)
-            dpg.add_checkbox(label="Show epipolar lines",
-                             callback=lambda s, v: setattr(state, 'show_epi_lines', v))
-
-        dpg.add_separator()
-
-        # ── Status ───────────────────────────────────────────────────────────
+        # ── Status bar ───────────────────────────────────────────────────────
         dpg.add_text("", tag="status_text", color=(255, 220, 100))
-
         dpg.add_separator()
 
-        # ── Matrix display: H(λ) = λ·B + outer(a, e₃ᵀ) ─────────────────────
-        dpg.add_text("H(λ) = λ · B  +  a e₃ᵀ     where  B = K' R_rel K⁻¹,   a = K' C + t'  (epipole in other view)",
-                      color=(200, 200, 120))
-        with dpg.group(horizontal=True):
-            with dpg.group():
-                dpg.add_text("λ · B  (depth-scaled rotation):", color=(150, 200, 255))
-                dpg.add_text("", tag="lam_b_text")
-            dpg.add_spacer(width=20)
-            with dpg.group():
-                dpg.add_text("+   a e₃ᵀ  (epipole — only col 3):", color=(150, 255, 150))
-                dpg.add_text("", tag="outer_text")
-            dpg.add_spacer(width=20)
-            with dpg.group():
-                dpg.add_text("=   H(λ):", color=(255, 200, 150))
-                dpg.add_text("", tag="h_text")
+        # ── Matrix display (shared, toggled by checkbox) ──────────────────
+        with dpg.group(tag="matrix_group", show=False):
+            dpg.add_text(
+                "H(\u03bb) = \u03bb \u00b7 B  +  \u03b1 \u00b7 a e\u2083\u1d40"
+                "     where  B = K' R_rel K\u207b\u00b9,"
+                "   a = K' C + t'  (epipole in other view)",
+                tag="matrix_formula", color=(200, 200, 120))
+            with dpg.group(horizontal=True):
+                with dpg.group():
+                    dpg.add_text(
+                        "\u03bb \u00b7 B  (depth-scaled rotation):",
+                        color=(150, 200, 255))
+                    dpg.add_text("", tag="lam_b_text")
+                dpg.add_spacer(width=20)
+                with dpg.group():
+                    dpg.add_text(
+                        "+   \u03b1 \u00b7 a e\u2083\u1d40  (epipole \u2014 only col 3):",
+                        tag="outer_label", color=(150, 255, 150))
+                    dpg.add_text("", tag="outer_text")
+                dpg.add_spacer(width=20)
+                with dpg.group():
+                    dpg.add_text("=   H(\u03bb):",
+                                 color=(255, 200, 150))
+                    dpg.add_text("", tag="h_text")
+            dpg.add_text("", tag="epipole_text", color=(150, 255, 150))
+            dpg.add_separator()
 
-        dpg.add_text("", tag="epipole_text", color=(150, 255, 150))
+        # ══════════════════════════════════════════════════════════════════════
+        # MODE 1: Two-View Geometry
+        # ══════════════════════════════════════════════════════════════════════
+        with dpg.group(tag="geom_images"):
 
-        dpg.add_separator()
+            # Images: ref + warped + 3D overview
+            with dpg.group(horizontal=True):
+                with dpg.group():
+                    dpg.add_text("Reference image", color=(150, 255, 150))
+                    dpg.add_image("ref_tex", tag="gm_ref_img",
+                                  width=IMG_W, height=IMG_H)
+                dpg.add_spacer(width=10)
+                with dpg.group():
+                    dpg.add_text("Warped other  [H(\u03bb)]",
+                                 tag="gm_warped_label",
+                                 color=(150, 200, 255))
+                    dpg.add_image("warped_tex", tag="gm_warped_img",
+                                  width=IMG_W, height=IMG_H)
+                dpg.add_spacer(width=10)
+                with dpg.group():
+                    dpg.add_text("3D Overview  (drag/scroll)",
+                                 color=(150, 255, 150))
+                    dpg.add_image("overview_tex", tag="gm_overview_img",
+                                  width=OVERVIEW_SIZE,
+                                  height=OVERVIEW_SIZE)
 
-        # ── Image panels ─────────────────────────────────────────────────────
-        with dpg.group(horizontal=True):
-            with dpg.group():
-                dpg.add_text("Reference image  (fixed)", color=(150, 255, 150))
-                dpg.add_image("ref_tex", tag="ref_img", width=IMG_W, height=IMG_H)
+        # ══════════════════════════════════════════════════════════════════════
+        # MODE 2: Plane Sweep
+        # ══════════════════════════════════════════════════════════════════════
+        with dpg.group(tag="sweep_images", show=False):
 
-            dpg.add_spacer(width=15)
-            with dpg.group():
-                dpg.add_text("Warped other  [H(λ) warped to reference]",
-                             color=(150, 200, 255))
-                dpg.add_image("warped_tex", tag="warped_img", width=IMG_W, height=IMG_H)
+            # Images: ref + warped + NCC curve + depth map + 3D overview
+            with dpg.group(horizontal=True):
+                with dpg.group():
+                    dpg.add_text("Reference image", color=(150, 255, 150))
+                    dpg.add_image("ref_tex", tag="sw_ref_img",
+                                  width=IMG_W, height=IMG_H)
+                dpg.add_spacer(width=10)
+                with dpg.group():
+                    dpg.add_text("Warped other  [H(\u03bb)]",
+                                 tag="sw_warped_label",
+                                 color=(150, 200, 255))
+                    dpg.add_image("warped_tex", tag="sw_warped_img",
+                                  width=IMG_W, height=IMG_H)
+                dpg.add_spacer(width=10)
+                with dpg.group():
+                    dpg.add_text("NCC vs. \u03bb", color=(220, 180, 100))
+                    dpg.add_image("curve_tex", tag="sw_curve_img",
+                                  width=400, height=300)
+                dpg.add_spacer(width=10)
+                with dpg.group():
+                    dpg.add_text("\u03bb map", tag="sw_depth_label",
+                                 color=(180, 150, 255))
+                    dpg.add_image("depth_tex", tag="sw_depth_img",
+                                  width=IMG_W, height=IMG_H)
+                dpg.add_spacer(width=10)
+                with dpg.group():
+                    dpg.add_text("3D Overview  (drag/scroll)",
+                                 color=(150, 255, 150))
+                    dpg.add_image("overview_tex", tag="sw_overview_img",
+                                  width=OVERVIEW_SIZE,
+                                  height=OVERVIEW_SIZE)
 
-            dpg.add_spacer(width=15)
-            with dpg.group():
-                dpg.add_text("NCC vs. λ  (pre-computed sweep)", color=(220, 180, 100))
-                dpg.add_image("curve_tex", tag="curve_img", width=400, height=300)
-
-        dpg.add_separator()
-
-        # ── 3D overview row ───────────────────────────────────────────────────
-        with dpg.group():
-            dpg.add_text("3D Overview  (drag to orbit, scroll to zoom)",
-                         color=(150, 255, 150))
-
-            # Image with user_data to make it track mouse events
-            dpg.add_image("overview_tex", tag="overview_img",
-                          width=OVERVIEW_SIZE, height=OVERVIEW_SIZE)
-
-    setup_viewport("Plane Sweep Stereo Demo — H(λ)", 1320, 870,
+    setup_viewport("Plane Sweep Stereo Demo \u2014 H(\u03bb)", 1700, 920,
                    "main_window", lambda: None, DEFAULTS["ui_scale"])
 
     bind_mono_font("lam_b_text", "outer_text", "h_text")
-
-    # Upload initial reference image
     dpg.set_value("ref_tex", convert_cv_to_dpg(cam.ref_img))
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     while dpg.is_dearpygui_running():
-        # ── Camera param change (baseline / convergence) ─────────────────────
+
+        # ── Camera param change ──────────────────────────────────────────────
         cam_changed = (
             state.cam_baseline != state._prev_cam_baseline or
             state.cam_convergence != state._prev_cam_convergence or
             state.cam_distance != state._prev_cam_distance
         )
         if cam_changed:
-            apply_camera_params(state.cam_baseline, state.cam_convergence, state.cam_distance)
+            apply_camera_params(state.cam_baseline, state.cam_convergence,
+                                state.cam_distance)
             state._ncc_curve_cached = None
+            if state._depth_img is not None:
+                state._depth_stale = True
             hit = raycast_scene(_SCENE, K_SHARED, cam.Rt_ref,
                                  int(state.point_x), int(state.point_y), IMG_H)
             state.lam_true = hit if hit is not None else LAM_TRUE
@@ -663,8 +896,16 @@ def main():
             state._prev_cam_convergence = state.cam_convergence
             state._prev_cam_distance = state.cam_distance
 
-        # ── Orbit camera mouse handling ───────────────────────────────────────
-        if dpg.is_item_hovered("overview_img"):
+        # ── Mode toggling ──────────────────────────────────────────────────────
+        is_geom = state.mode == "Two-View Geometry"
+        dpg.configure_item("sweep_panel", show=not is_geom)
+        dpg.configure_item("geom_images", show=is_geom)
+        dpg.configure_item("sweep_images", show=not is_geom)
+
+        # ── Orbit camera mouse handling ──────────────────────────────────────
+        ov_hovered = (dpg.is_item_hovered("gm_overview_img")
+                      or dpg.is_item_hovered("sw_overview_img"))
+        if ov_hovered:
             mx, my = dpg.get_mouse_pos()
             if dpg.is_mouse_button_down(0):
                 if OvCam._prev is not None:
@@ -680,136 +921,266 @@ def main():
 
         lam = float(state.lam)
         patch_size = int(state.patch_size)
+        alpha = float(state.epipole_weight)
 
-        # Compute H(λ) and warp
+        # ── Compute H(lambda) and warp ───────────────────────────────────────
         B, a = decompose_H(cam.M_ref, cam.M_other)
         e3 = np.array([0.0, 0.0, 1.0])
         outer_ae3 = np.outer(a, e3)
-        H = lam * B + outer_ae3
+        H = lam * B + alpha * outer_ae3
         warped = warp_other_to_ref(cam.other_img, H, IMG_W, IMG_H)
 
-        # NCC at the selected point
+        # Choose what to display in the second panel
+        if state.show_rectify:
+            display_img = warped
+        else:
+            display_img = cam.other_img
+
+        # NCC at selected point (always against warped for curve consistency)
         selected_point = (int(state.point_x), int(state.point_y))
-        ncc = compute_ncc_score(cam.ref_img, warped, center=selected_point, patch_size=patch_size)
+        ncc = compute_ncc_score(cam.ref_img, warped,
+                                center=selected_point, patch_size=patch_size)
 
-        # Recompute NCC curve if camera, patch_size, or point changed
-        curve_needs_recompute = (
-            state._ncc_curve_cached is None or
-            patch_size != state._prev_patch_size or
-            selected_point != state._prev_point
-        )
-
-        if curve_needs_recompute:
-            state._ncc_curve_cached = np.array([
-                compute_ncc_score(cam.ref_img, warp_other_to_ref(cam.other_img,
-                                  compute_H_lam(cam.M_ref, cam.M_other, l), IMG_W, IMG_H),
-                                  center=selected_point, patch_size=patch_size)
-                for l in _LAM_CURVE
-            ])
-            state._prev_patch_size = patch_size
-            state._prev_point = selected_point
-
+        # ── NCC curve recompute (only in sweep mode) ─────────────────────────
+        if not is_geom:
+            curve_needs_recompute = (
+                state._ncc_curve_cached is None or
+                patch_size != state._prev_patch_size or
+                selected_point != state._prev_point or
+                alpha != getattr(state, '_prev_alpha', None)
+            )
+            if curve_needs_recompute:
+                state._ncc_curve_cached = np.array([
+                    compute_ncc_score(
+                        cam.ref_img,
+                        warp_other_to_ref(cam.other_img,
+                                          l * B + alpha * outer_ae3,
+                                          IMG_W, IMG_H),
+                        center=selected_point, patch_size=patch_size)
+                    for l in _LAM_CURVE
+                ])
+                state._prev_patch_size = patch_size
+                state._prev_point = selected_point
+                state._prev_alpha = alpha
         ncc_curve = state._ncc_curve_cached
 
         # ── 3D overview ──────────────────────────────────────────────────────
         ov_Rt = OvCam.make_Rt()
-
-        frustum_ref   = make_frustum_mesh(K_SHARED, cam.Rt_ref,   IMG_W, IMG_H, near=0.3, far=6.0)
-        frustum_other = make_frustum_mesh(K_SHARED, cam.Rt_other, IMG_W, IMG_H, near=0.3, far=6.0)
+        frustum_ref = make_frustum_mesh(K_SHARED, cam.Rt_ref,
+                                         IMG_W, IMG_H, near=0.3, far=6.0)
+        frustum_other = make_frustum_mesh(K_SHARED, cam.Rt_other,
+                                           IMG_W, IMG_H, near=0.3, far=6.0)
         axes = make_axis_mesh(origin=(0, 0, 0), length=1.0)
-
         ov_img = render_scene(_SCENE + frustum_ref + frustum_other + axes,
                               _OV_K, ov_Rt, OVERVIEW_SIZE, OVERVIEW_SIZE)
 
-        # ── NCC curve + image overlays ────────────────────────────────────────
-        curve = draw_ncc_curve(lam, ncc, ncc_curve, lam_true=state.lam_true)
+        # ── Image overlays ───────────────────────────────────────────────────
+        if not is_geom and ncc_curve is not None:
+            curve = draw_ncc_curve(lam, ncc, ncc_curve, lam_true=state.lam_true)
+            dpg.set_value("curve_tex", convert_cv_to_dpg(curve))
 
         cx, cy = int(state.point_x), int(state.point_y)
-        color = (60, 200, 220)
-        h = max(1, state.patch_size // 2)
+        mk_col = (60, 200, 220)
+        hh = max(1, state.patch_size // 2)
 
-        warped_marked = warped.copy()
-        cv2.rectangle(warped_marked, (cx - h, cy - h), (cx + h, cy + h), color, 1)
-        cv2.putText(warped_marked, f"lam={lam:.2f}", (cx + 15, cy - 5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
+        display_marked = display_img.copy()
+        cv2.rectangle(display_marked, (cx - hh, cy - hh),
+                      (cx + hh, cy + hh), mk_col, 1)
+        if not is_geom and state.show_rectify:
+            cv2.putText(display_marked, f"lam={lam:.2f}", (cx + 15, cy - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, mk_col, 1, cv2.LINE_AA)
 
         ref_marked = cam.ref_img.copy()
-        cv2.rectangle(ref_marked, (cx - h, cy - h), (cx + h, cy + h), color, 1)
+        cv2.rectangle(ref_marked, (cx - hh, cy - hh),
+                      (cx + hh, cy + hh), mk_col, 1)
 
-        # ── Epipoles / epipolar lines overlay ──────────────────────────────
-        if (state.show_epipoles or state.show_epi_lines) and state.cam_baseline > 1e-4:
-            ex, ey = compute_epipole_ref(cam.M_ref, cam.M_other, IMG_H)
+        # ── Epipoles / epipolar lines ────────────────────────────────────────
+        if (state.show_epipoles or state.show_epi_lines) \
+                and state.cam_baseline > 1e-4:
+            ex_ref, ey_ref = compute_epipole_ref(cam.M_ref, cam.M_other,
+                                                 IMG_H)
+            # Other image: when warp is on both views share the ref frame,
+            # so the same epipole applies.  When warp is off the other
+            # image is in its own coordinate frame → use e' (projection of
+            # the ref camera centre into the other view).
+            if state.show_rectify:
+                ex_disp, ey_disp = ex_ref, ey_ref
+            else:
+                ex_disp, ey_disp = compute_epipole_ref(
+                    cam.M_other, cam.M_ref, IMG_H)
 
             if state.show_epi_lines:
-                # Grid of epipolar lines across the image (dim)
-                grid_color = (30, 120, 120)  # dim yellow-ish (BGR)
+                grid_color = (30, 120, 120)
                 step = 50
                 for gx in range(step, IMG_W, step):
                     for gy in range(step, IMG_H, step):
-                        dx, dy = ex - gx, ey - gy
-                        ln = np.sqrt(dx * dx + dy * dy)
+                        # Ref image — lines converge to e_ref
+                        ddx, ddy = ex_ref - gx, ey_ref - gy
+                        ln = np.sqrt(ddx * ddx + ddy * ddy)
                         if ln > 1e-3:
-                            dx, dy = dx / ln, dy / ln
-                            g1 = (int(gx - 2000 * dx), int(gy - 2000 * dy))
-                            g2 = (int(gx + 2000 * dx), int(gy + 2000 * dy))
-                            cv2.line(ref_marked, g1, g2, grid_color, 1, cv2.LINE_AA)
-                            cv2.line(warped_marked, g1, g2, grid_color, 1, cv2.LINE_AA)
+                            ddx, ddy = ddx / ln, ddy / ln
+                            g1 = (int(gx - 2000 * ddx),
+                                  int(gy - 2000 * ddy))
+                            g2 = (int(gx + 2000 * ddx),
+                                  int(gy + 2000 * ddy))
+                            cv2.line(ref_marked, g1, g2,
+                                     grid_color, 1, cv2.LINE_AA)
+                        # Other image — lines converge to e_disp
+                        ddx, ddy = ex_disp - gx, ey_disp - gy
+                        ln = np.sqrt(ddx * ddx + ddy * ddy)
+                        if ln > 1e-3:
+                            ddx, ddy = ddx / ln, ddy / ln
+                            g1 = (int(gx - 2000 * ddx),
+                                  int(gy - 2000 * ddy))
+                            g2 = (int(gx + 2000 * ddx),
+                                  int(gy + 2000 * ddy))
+                            cv2.line(display_marked, g1, g2,
+                                     grid_color, 1, cv2.LINE_AA)
 
-                # Highlighted line through selected point (bright)
-                dx, dy = ex - cx, ey - cy
-                length = np.sqrt(dx * dx + dy * dy)
+                # Highlighted epipolar line — ref image
+                ddx, ddy = ex_ref - cx, ey_ref - cy
+                length = np.sqrt(ddx * ddx + ddy * ddy)
                 if length > 1e-3:
-                    dx, dy = dx / length, dy / length
-                    p1 = (int(cx - 2000 * dx), int(cy - 2000 * dy))
-                    p2 = (int(cx + 2000 * dx), int(cy + 2000 * dy))
-                    epi_color = (50, 255, 255)  # bright yellow (BGR)
+                    ddx, ddy = ddx / length, ddy / length
+                    p1 = (int(cx - 2000 * ddx), int(cy - 2000 * ddy))
+                    p2 = (int(cx + 2000 * ddx), int(cy + 2000 * ddy))
+                    epi_color = (50, 255, 255)
                     cv2.line(ref_marked, p1, p2, epi_color, 2, cv2.LINE_AA)
-                    cv2.line(warped_marked, p1, p2, epi_color, 2, cv2.LINE_AA)
+
+                # Highlighted epipolar line — other image
+                if state.show_rectify:
+                    # Same frame as ref → identical line
+                    ddx, ddy = ex_ref - cx, ey_ref - cy
+                    length = np.sqrt(ddx * ddx + ddy * ddy)
+                    if length > 1e-3:
+                        ddx, ddy = ddx / length, ddy / length
+                        p1 = (int(cx - 2000 * ddx),
+                              int(cy - 2000 * ddy))
+                        p2 = (int(cx + 2000 * ddx),
+                              int(cy + 2000 * ddy))
+                        epi_color = (50, 255, 255)
+                        cv2.line(display_marked, p1, p2,
+                                 epi_color, 2, cv2.LINE_AA)
+                else:
+                    # Own frame: epipolar line passes through e' and
+                    # B @ p_ref (infinite-depth projection of clicked pt).
+                    B, _ = decompose_H(cam.M_ref, cam.M_other)
+                    p_uf = np.array([cx, IMG_H - 1 - cy, 1.0])
+                    q = B @ p_uf
+                    if abs(q[2]) > 1e-8:
+                        qx = q[0] / q[2]
+                        qy = IMG_H - 1 - q[1] / q[2]
+                    else:
+                        qx, qy = q[0] * 1e6, -(q[1]) * 1e6
+                    ddx, ddy = ex_disp - qx, ey_disp - qy
+                    length = np.sqrt(ddx * ddx + ddy * ddy)
+                    if length > 1e-3:
+                        ddx, ddy = ddx / length, ddy / length
+                        p1 = (int(qx - 2000 * ddx),
+                              int(qy - 2000 * ddy))
+                        p2 = (int(qx + 2000 * ddx),
+                              int(qy + 2000 * ddy))
+                        epi_color = (50, 255, 255)
+                        cv2.line(display_marked, p1, p2,
+                                 epi_color, 2, cv2.LINE_AA)
 
             if state.show_epipoles:
-                epi_pt = (int(round(ex)), int(round(ey)))
-                # Only draw the dot if it's reasonably near the image
-                if -500 < epi_pt[0] < IMG_W + 500 and -500 < epi_pt[1] < IMG_H + 500:
-                    epi_dot_color = (255, 50, 200)  # magenta (BGR)
-                    cv2.drawMarker(ref_marked, epi_pt, epi_dot_color,
+                epi_dot = (255, 50, 200)
+                # Ref epipole
+                epi_pt = (int(round(ex_ref)), int(round(ey_ref)))
+                if (-500 < epi_pt[0] < IMG_W + 500
+                        and -500 < epi_pt[1] < IMG_H + 500):
+                    cv2.drawMarker(ref_marked, epi_pt, epi_dot,
                                    cv2.MARKER_DIAMOND, 12, 2, cv2.LINE_AA)
-                    cv2.putText(ref_marked, "e", (epi_pt[0] + 8, epi_pt[1] - 8),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, epi_dot_color, 1, cv2.LINE_AA)
-                    cv2.drawMarker(warped_marked, epi_pt, epi_dot_color,
+                    cv2.putText(ref_marked, "e",
+                                (epi_pt[0] + 8, epi_pt[1] - 8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                                epi_dot, 1, cv2.LINE_AA)
+                # Other image epipole
+                epi_pt2 = (int(round(ex_disp)), int(round(ey_disp)))
+                if (-500 < epi_pt2[0] < IMG_W + 500
+                        and -500 < epi_pt2[1] < IMG_H + 500):
+                    cv2.drawMarker(display_marked, epi_pt2, epi_dot,
                                    cv2.MARKER_DIAMOND, 12, 2, cv2.LINE_AA)
-                    cv2.putText(warped_marked, "e", (epi_pt[0] + 8, epi_pt[1] - 8),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, epi_dot_color, 1, cv2.LINE_AA)
+                    lbl = "e" if state.show_rectify else "e'"
+                    cv2.putText(display_marked, lbl,
+                                (epi_pt2[0] + 8, epi_pt2[1] - 8),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                                epi_dot, 1, cv2.LINE_AA)
 
-        # Update textures
-        dpg.set_value("ref_tex",     convert_cv_to_dpg(ref_marked))
-        dpg.set_value("warped_tex",  convert_cv_to_dpg(warped_marked))
-        dpg.set_value("curve_tex",   convert_cv_to_dpg(curve))
+        # ── Update textures ──────────────────────────────────────────────────
+        dpg.set_value("ref_tex", convert_cv_to_dpg(ref_marked))
+        dpg.set_value("warped_tex", convert_cv_to_dpg(display_marked))
         dpg.set_value("overview_tex", convert_cv_to_dpg(ov_img))
 
-        # Update matrix display
-        dpg.set_value("lam_b_text",  format_matrix(lam * B))
-        dpg.set_value("outer_text",  format_matrix(outer_ae3))
-        dpg.set_value("h_text",      format_matrix(H))
-        dpg.set_value("epipole_text",
-                       f"a = ({a[0]:.2f}, {a[1]:.2f}, {a[2]:.2f})  "
-                       f"— epipole e' in other image;  "
-                       f"a e₃ᵀ puts a into column 3 only (homogeneous translation)")
+        if not is_geom:
+            if state._depth_img is not None:
+                dpg.set_value("depth_tex",
+                              convert_cv_to_dpg(state._depth_img))
+            if state._depth_label:
+                lbl = state._depth_label
+                if state._depth_stale:
+                    lbl += "  (stale)"
+                dpg.set_value("sw_depth_label", lbl)
+            else:
+                dpg.set_value("sw_depth_label",
+                              "\u03bb map \u2014 click GT or NCC")
+
+        # Warped panel labels (mode-specific wording)
+        if state.show_rectify:
+            dpg.set_value("gm_warped_label",
+                          "Other \u2192 ref (homography warp)")
+            dpg.set_value("sw_warped_label",
+                          "Other \u2192 ref via H(\u03bb)  (same coord frame)")
+        else:
+            wlbl = "Other camera  (own coord frame)"
+            dpg.set_value("gm_warped_label", wlbl)
+            dpg.set_value("sw_warped_label", wlbl)
+
+        # ── Matrix display toggle ─────────────────────────────────────────
+        dpg.configure_item("matrix_group", show=state.show_matrices)
+        if state.show_matrices:
+            dpg.set_value("lam_b_text", _fmt_mat(lam * B))
+            dpg.set_value("outer_text", _fmt_mat(alpha * outer_ae3))
+            dpg.set_value("h_text", _fmt_mat(H))
+            if alpha < 1.0 - 1e-6:
+                dpg.set_value("outer_label",
+                              f"+   \u03b1\u00b7a e\u2083\u1d40"
+                              f"  (epipole, \u03b1={alpha:.2f}):")
+            else:
+                dpg.set_value("outer_label",
+                              "+   \u03b1 \u00b7 a e\u2083\u1d40"
+                              "  (epipole \u2014 only col 3):")
+            dpg.set_value("epipole_text",
+                           f"a = ({a[0]:.2f}, {a[1]:.2f}, {a[2]:.2f})  "
+                           f"\u2014 epipole e' in other image;  "
+                           f"\u03b1\u00b7a e\u2083\u1d40 puts \u03b1\u00b7a"
+                           f" into column 3 only"
+                           f" (homogeneous translation)")
 
         if dpg.does_item_exist("patch_size_display"):
-            dpg.set_value("patch_size_display", str(patch_size))
+            dpg.set_value("patch_size_display", f"{patch_size} px")
 
-        # Status
-        ncc_str = f"{ncc:.4f}" if ncc >= -0.5 else "invalid"
+        # ── Status bar ───────────────────────────────────────────────────────
         toe_in_deg = state.cam_convergence * _MAX_TOE_IN_DEG
-        conv_label = "parallel" if toe_in_deg < 0.5 else f"toe-in={toe_in_deg:.1f}\u00b0"
-        dpg.set_value(
-            "status_text",
-            f"baseline={state.cam_baseline:.2f}  {conv_label}  z_other={state.cam_distance:.1f}  |  "
-            f"λ = {lam:.3f}  |  NCC = {ncc_str}  |  "
-            f"True λ = {state.lam_true:.2f}  |  "
-            f"Point: ({state.point_x}, {state.point_y})  |  "
-            f"{'>>> PEAK NEAR HERE <<<' if abs(lam - state.lam_true) < 0.3 else ''}",
-        )
+        conv_label = ("parallel" if toe_in_deg < 0.5
+                      else f"toe-in={toe_in_deg:.1f}\u00b0")
+        cam_status = (f"baseline={state.cam_baseline:.2f}  {conv_label}"
+                      f"  cam dist={state.cam_distance:.1f}")
+        if is_geom:
+            dpg.set_value(
+                "status_text",
+                f"{cam_status}  |  "
+                f"Point: ({state.point_x}, {state.point_y})")
+        else:
+            ncc_str = f"{ncc:.4f}" if ncc >= -0.5 else "invalid"
+            dpg.set_value(
+                "status_text",
+                f"{cam_status}  |  "
+                f"\u03bb = {lam:.3f}  |  NCC = {ncc_str}  |  "
+                f"True \u03bb = {state.lam_true:.2f}  |  "
+                f"Point: ({state.point_x}, {state.point_y})  |  "
+                f"{'>>> PEAK NEAR HERE <<<' if abs(lam - state.lam_true) < 0.3 else ''}")
 
         dpg.render_dearpygui_frame()
 

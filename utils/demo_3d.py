@@ -386,7 +386,7 @@ def make_lookat_Rt(eye, target, up=None):
 # =============================================================================
 
 def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 40),
-                 flip_y=True):
+                 flip_y=True, return_zbuf=False):
     """Render meshes to a BGR uint8 image.
 
     Polygons use painter's algorithm (far-to-near) for high-quality
@@ -403,9 +403,13 @@ def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 
         bg_color: (B, G, R) background color
         flip_y: if True, flip image vertically for upright display
                 (compensates for pinhole inversion, matching standard camera display)
+        return_zbuf: if True, also return the z-buffer (camera-space depth per pixel).
+                     Background pixels have value np.inf.
 
     Returns:
         BGR uint8 image of shape (img_h, img_w, 3)
+        — or, if return_zbuf is True, a tuple (image, z_buf) where z_buf
+          is float64 shape (img_h, img_w) with np.inf for background.
     """
     if light_dir is None:
         light_dir = np.array([0.3, -0.8, 0.5])
@@ -427,6 +431,7 @@ def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 
     for mesh in meshes:
         verts = mesh["vertices"]
         base_color = np.array(mesh["color"], dtype=np.float64)
+        face_colors = mesh.get("face_colors")  # optional per-face colors
 
         N = len(verts)
         verts_h = np.hstack([verts, np.ones((N, 1))])
@@ -437,9 +442,12 @@ def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 
         uv = np.zeros((2, N))
         uv[:, valid_mask] = projected[:2, valid_mask] / depths[valid_mask]
 
-        for face_idx in mesh["faces"]:
+        for fi, face_idx in enumerate(mesh["faces"]):
             face_idx = list(face_idx)
             n_verts = len(face_idx)
+
+            fc = np.array(face_colors[fi], dtype=np.float64) \
+                if face_colors is not None else base_color
 
             face_depths = depths[face_idx]
             if np.any(face_depths <= 0.01):
@@ -449,7 +457,7 @@ def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 
             pts_2d = uv[:, face_idx].T.astype(np.int32)
 
             if n_verts == 2:
-                line_list.append((mean_depth, pts_2d, base_color,
+                line_list.append((mean_depth, pts_2d, fc,
                                   float(face_depths[0]), float(face_depths[1])))
             else:
                 v0 = verts[face_idx[0]]
@@ -467,7 +475,7 @@ def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 
 
                 intensity = np.clip(np.dot(normal_world, light_dir), 0.0, 1.0)
                 intensity = 0.35 + 0.65 * intensity
-                shaded = np.clip(base_color * intensity, 0, 255).astype(np.uint8)
+                shaded = np.clip(fc * intensity, 0, 255).astype(np.uint8)
 
                 n_cam = R @ normal_world
                 v0_cam = R @ v0 + t_vec
@@ -492,7 +500,11 @@ def render_scene(meshes, K, Rt, img_w, img_h, light_dir=None, bg_color=(40, 40, 
 
     if flip_y:
         img = cv2.flip(img, 0)
+        if return_zbuf:
+            z_buf = cv2.flip(z_buf, 0)
 
+    if return_zbuf:
+        return img, z_buf
     return img
 
 
@@ -761,6 +773,203 @@ def create_default_scene():
         make_sphere(center=(0, 0.8, -2), radius=0.6, color=(80, 220, 80)),
         make_cylinder(base_center=(2, 0, 1), radius=0.3, height=1.5, color=(80, 220, 220)),
         make_ground_grid(y=0.0, extent=5.0, spacing=1.0, color=(100, 100, 100)),
+    ]
+
+
+def make_checker_cube(center, size, color_a, color_b, n_div=4):
+    """Cube with checkerboard pattern on each face (n_div x n_div grid).
+
+    Uses per-face colors via the ``face_colors`` mesh field.
+    """
+    cx, cy, cz = center
+    h = size / 2.0
+
+    # 6 face definitions: (origin corner, u_axis, v_axis)
+    # Each spans a unit square in [0,1]^2 mapped to the face.
+    # Winding: cross(u, v) must point OUTWARD from the cube so that
+    # the renderer's back-face cull (dot(normal, face→cam) < 0) keeps them.
+    corners = [
+        (np.array([cx-h, cy-h, cz-h]), np.array([0,size,0]), np.array([size,0,0])),  # back  -Z  cross→(0,0,-1)
+        (np.array([cx-h, cy-h, cz+h]), np.array([size,0,0]), np.array([0,size,0])),  # front +Z  cross→(0,0,+1)
+        (np.array([cx-h, cy-h, cz-h]), np.array([size,0,0]), np.array([0,0,size])),  # bottom -Y cross→(0,-1,0)
+        (np.array([cx-h, cy+h, cz-h]), np.array([0,0,size]), np.array([size,0,0])),  # top +Y    cross→(0,+1,0)
+        (np.array([cx-h, cy-h, cz-h]), np.array([0,0,size]), np.array([0,size,0])),  # left -X   cross→(-1,0,0)
+        (np.array([cx+h, cy-h, cz-h]), np.array([0,size,0]), np.array([0,0,size])),  # right +X  cross→(+1,0,0)
+    ]
+
+    vertices = []
+    faces = []
+    face_colors = []
+    idx = 0
+
+    for origin, u_ax, v_ax in corners:
+        for i in range(n_div):
+            for j in range(n_div):
+                s0, s1 = i / n_div, (i + 1) / n_div
+                t0, t1 = j / n_div, (j + 1) / n_div
+                v0 = origin + s0 * u_ax + t0 * v_ax
+                v1 = origin + s1 * u_ax + t0 * v_ax
+                v2 = origin + s1 * u_ax + t1 * v_ax
+                v3 = origin + s0 * u_ax + t1 * v_ax
+                vertices.extend([v0, v1, v2, v3])
+                faces.append([idx, idx+1, idx+2, idx+3])
+                face_colors.append(color_a if (i + j) % 2 == 0 else color_b)
+                idx += 4
+
+    return {"vertices": np.array(vertices), "faces": faces,
+            "color": color_a, "face_colors": face_colors}
+
+
+def make_checker_sphere(center, radius, color_a, color_b, n_lat=12, n_lon=20):
+    """Sphere with checkerboard pattern (alternating lat/lon colors).
+
+    Uses per-face colors via the ``face_colors`` mesh field.
+    """
+    cx, cy, cz = center
+    vertices = []
+    faces = []
+    face_colors = []
+
+    # Top pole
+    vertices.append([cx, cy + radius, cz])
+
+    # Latitude rings
+    for i in range(1, n_lat):
+        phi = np.pi * i / n_lat
+        for j in range(n_lon):
+            theta = 2.0 * np.pi * j / n_lon
+            x = cx + radius * np.sin(phi) * np.cos(theta)
+            y = cy + radius * np.cos(phi)
+            z = cz + radius * np.sin(phi) * np.sin(theta)
+            vertices.append([x, y, z])
+
+    # Bottom pole
+    vertices.append([cx, cy - radius, cz])
+    vertices = np.array(vertices)
+
+    # Top cap triangles
+    for j in range(n_lon):
+        j_next = (j + 1) % n_lon
+        faces.append([0, 1 + j_next, 1 + j])
+        face_colors.append(color_a if j % 2 == 0 else color_b)
+
+    # Quad strips
+    for i in range(n_lat - 2):
+        ring = 1 + i * n_lon
+        next_ring = 1 + (i + 1) * n_lon
+        for j in range(n_lon):
+            j_next = (j + 1) % n_lon
+            faces.append([ring + j, ring + j_next,
+                          next_ring + j_next, next_ring + j])
+            face_colors.append(color_a if (i + j) % 2 == 0 else color_b)
+
+    # Bottom cap
+    bottom = len(vertices) - 1
+    last_ring = 1 + (n_lat - 2) * n_lon
+    for j in range(n_lon):
+        j_next = (j + 1) % n_lon
+        faces.append([bottom, last_ring + j, last_ring + j_next])
+        face_colors.append(color_a if j % 2 == 0 else color_b)
+
+    return {"vertices": vertices, "faces": faces,
+            "color": color_a, "face_colors": face_colors}
+
+
+def make_checker_cylinder(base_center, radius, height, color_a, color_b,
+                          n_seg=16, n_rings=6):
+    """Cylinder with checkerboard pattern on its side and caps.
+
+    Uses per-face colors via the ``face_colors`` mesh field.
+    """
+    cx, cy, cz = base_center
+    vertices = []
+    faces = []
+    face_colors = []
+
+    # Bottom center (0), top center (1)
+    vertices.append([cx, cy, cz])
+    vertices.append([cx, cy + height, cz])
+
+    # Rings along the height (n_rings + 1 rings of n_seg vertices each)
+    ring_start = 2
+    for r in range(n_rings + 1):
+        frac = r / n_rings
+        y_r = cy + frac * height
+        for s in range(n_seg):
+            theta = 2.0 * np.pi * s / n_seg
+            vertices.append([cx + radius * np.cos(theta), y_r,
+                             cz + radius * np.sin(theta)])
+
+    vertices = np.array(vertices)
+
+    # Bottom cap
+    bot_ring = ring_start
+    for s in range(n_seg):
+        s_next = (s + 1) % n_seg
+        faces.append([0, bot_ring + s, bot_ring + s_next])
+        face_colors.append(color_a if s % 2 == 0 else color_b)
+
+    # Top cap
+    top_ring = ring_start + n_rings * n_seg
+    for s in range(n_seg):
+        s_next = (s + 1) % n_seg
+        faces.append([1, top_ring + s_next, top_ring + s])
+        face_colors.append(color_a if s % 2 == 0 else color_b)
+
+    # Side quads
+    for r in range(n_rings):
+        r0 = ring_start + r * n_seg
+        r1 = ring_start + (r + 1) * n_seg
+        for s in range(n_seg):
+            s_next = (s + 1) % n_seg
+            faces.append([r0 + s, r1 + s, r1 + s_next, r0 + s_next])
+            face_colors.append(color_a if (r + s) % 2 == 0 else color_b)
+
+    return {"vertices": vertices, "faces": faces,
+            "color": color_a, "face_colors": face_colors}
+
+
+def make_checker_ground(y, extent, spacing, color_a, color_b):
+    """Checkerboard ground plane (filled quads instead of wireframe grid).
+
+    Winding gives upward (+Y) normals so the plane faces the camera.
+    """
+    vertices = []
+    faces = []
+    face_colors = []
+    idx = 0
+    vals = np.arange(-extent, extent, spacing)
+    for i, x in enumerate(vals):
+        for j, z in enumerate(vals):
+            v0 = [x, y, z]
+            v1 = [x, y, z + spacing]
+            v2 = [x + spacing, y, z + spacing]
+            v3 = [x + spacing, y, z]
+            vertices.extend([v0, v1, v2, v3])
+            faces.append([idx, idx+1, idx+2, idx+3])
+            face_colors.append(color_a if (i + j) % 2 == 0 else color_b)
+            idx += 4
+    return {"vertices": np.array(vertices), "faces": faces,
+            "color": color_a, "face_colors": face_colors}
+
+
+def create_textured_scene():
+    """Scene variant with checkerboard textures — same object layout as default.
+
+    Returns:
+        List of mesh dicts
+    """
+    return [
+        make_checker_cube(center=(-1.5, 0.5, 0), size=1.0,
+                          color_a=(60, 60, 200), color_b=(180, 180, 255), n_div=4),
+        make_checker_cube(center=(1.5, 0.5, -1), size=0.7,
+                          color_a=(200, 60, 60), color_b=(255, 180, 180), n_div=4),
+        make_checker_sphere(center=(0, 0.8, -2), radius=0.6,
+                            color_a=(60, 200, 60), color_b=(180, 255, 180)),
+        make_checker_cylinder(base_center=(2, 0, 1), radius=0.3, height=1.5,
+                              color_a=(60, 200, 200), color_b=(180, 255, 255)),
+        make_checker_ground(y=0.0, extent=5.0, spacing=1.0,
+                            color_a=(70, 70, 70), color_b=(130, 130, 130)),
     ]
 
 
