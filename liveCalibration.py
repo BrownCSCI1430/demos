@@ -787,7 +787,7 @@ def main():
 
         # ── Orbit camera mouse controls ──────────────────────────────────────
         if dpg.is_item_hovered("overview_img"):
-            mx, my = dpg.get_mouse_pos()
+            mx, my = dpg.get_mouse_pos(local=False)
             if dpg.is_mouse_button_down(0):
                 if OvCam._prev is not None:
                     dx = mx - OvCam._prev[0]

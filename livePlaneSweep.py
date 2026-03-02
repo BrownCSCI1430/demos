@@ -898,7 +898,7 @@ def main():
         ov_hovered = (dpg.is_item_hovered("gm_overview_img")
                       or dpg.is_item_hovered("sw_overview_img"))
         if ov_hovered:
-            mx, my = dpg.get_mouse_pos()
+            mx, my = dpg.get_mouse_pos(local=False)
             if dpg.is_mouse_button_down(0):
                 if OvCam._prev is not None:
                     dx = mx - OvCam._prev[0]
