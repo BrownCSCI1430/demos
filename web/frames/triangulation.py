@@ -1,12 +1,12 @@
 """
-Web frame module for liveTriangulation demo.
+Web frame module for liveEpipolarLines demo.
 Click correspondences in two camera views to triangulate 3D points.
 """
 
 import numpy as np
 import cv2
 
-from liveTriangulation import (
+from liveEpipolarLines import (
     triangulate_point, compute_F_from_cameras,
     check_cheirality, reprojection_error, epipolar_line_endpoints,
     draw_view,

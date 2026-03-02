@@ -1,8 +1,8 @@
 """
-Live Triangulation Demo — Sparse 3D Reconstruction
+Live Epipolar Lines Demo — Epipolar Geometry & Triangulation
 CSCI 1430 - Brown University
 
-Interactive demonstration of triangulation from two calibrated cameras.
+Interactive demonstration of epipolar lines and triangulation from two calibrated cameras.
 
 Core math (HW3 Task 5):
   Given pixel (u1,v1) in camera 1 and (u2,v2) in camera 2, solve:
@@ -281,7 +281,7 @@ def handle_clicks():
         return
 
     if dpg.is_mouse_button_clicked(0):   # left click
-        mx, my = dpg.get_mouse_pos()
+        mx, my = dpg.get_mouse_pos(local=False)
 
         coords_l = _get_local_coords("left_img",  mx, my)
         if coords_l is not None:
@@ -321,7 +321,7 @@ def main():
         dpg.add_raw_texture(OVERVIEW_SIZE, OVERVIEW_SIZE, blank_ov,
                             format=dpg.mvFormat_Float_rgba, tag="overview_tex")
 
-    with dpg.window(label="Triangulation Demo", tag="main_window"):
+    with dpg.window(label="Epipolar Lines Demo", tag="main_window"):
 
         # ── Top bar ──────────────────────────────────────────────────────────
         def _clear_clicks():
@@ -391,7 +391,7 @@ def main():
 
     bind_mono_font("math_text")
 
-    setup_viewport("Triangulation Demo (DLT)", 1400, 750,
+    setup_viewport("Epipolar Lines & Triangulation", 1400, 750,
                    "main_window", lambda: None, DEFAULTS["ui_scale"])
 
     # ── Main loop ─────────────────────────────────────────────────────────────

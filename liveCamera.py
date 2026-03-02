@@ -37,7 +37,7 @@ DEFAULTS = {
     "rot_z": 0.0,
     "trans_x": 0.0,
     "trans_y": 0.0,
-    "trans_z": 5.0,
+    "trans_z": -5.0,
     "focal_length": 35.0,
     "sensor_w": 36.0,
     "sensor_h": 36.0,
@@ -108,7 +108,7 @@ class State:
     _cam_texture_tag = "camera_texture_0"
 
     # Mode
-    camera_frame = False  # False = world frame, True = camera frame
+    camera_frame = True  # False = world frame, True = camera frame
     show_symbolic = False  # False = numeric values, True = algebraic symbols
 
     # Cached matrices
@@ -204,10 +204,10 @@ def _sync_sliders_to_state():
 
 def _camera_extra_reset():
     """Extra reset logic beyond DEFAULTS iteration."""
-    state.camera_frame = False
+    state.camera_frame = True
     state.show_symbolic = False
     if dpg.does_item_exist("ref_frame_combo"):
-        dpg.set_value("ref_frame_combo", "World")
+        dpg.set_value("ref_frame_combo", "Camera")
     if dpg.does_item_exist("symbolic_toggle"):
         dpg.set_value("symbolic_toggle", False)
     _sync_sliders_to_state()
@@ -326,7 +326,7 @@ def main():
                 dpg.add_text("Reference Frame:")
                 dpg.add_combo(
                     items=["World", "Camera"],
-                    default_value="World",
+                    default_value="Camera",
                     callback=on_reference_frame_change,
                     tag="ref_frame_combo",
                     width=100,

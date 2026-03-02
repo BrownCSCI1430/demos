@@ -67,19 +67,14 @@ SECTIONS = [
             "description": "Synthetic DLT calibration demo. Drag the noise slider to add pixel noise to 2D\u20133D correspondences and watch the reprojection error and condition number change. Toggle Hartley normalization to see its effect on numerical stability.",
             "default_resolution": "480x480",
         },
-        "DLT Explorer": {
-            "file": "liveDLT.py",
-            "description": "Explore DLT estimation for homographies and fundamental matrices. See how SVD solves Ah=0, decompose H(\u03bb) = \u03bbB + ae\u2083\u1d40 interactively, and visualize the 8-point algorithm with rank enforcement and epipole extraction.",
-            "default_resolution": "420x380",
-        },
         "Plane Sweep Stereo": {
             "file": "livePlaneSweep.py",
             "description": "Depth-dependent homography H(\u03bb) demo. Sweep the depth slider to warp one camera view into the other. NCC peaks when \u03bb matches the true scene depth, showing the plane sweep stereo principle (HW3 Task 2).",
             "default_resolution": "400x400",
         },
-        "Sparse Triangulation": {
-            "file": "liveTriangulation.py",
-            "description": "Click correspondences in two camera views to triangulate 3D points. The epipolar line guides you to the correct match. Cheirality check shown in green (valid) or red (behind camera). Uses the 4\u00d74 DLT system (HW3 Task 5).",
+        "Epipolar Lines": {
+            "file": "liveEpipolarLines.py",
+            "description": "Click correspondences in two camera views to see epipolar lines and triangulate 3D points. Cheirality check shown in green (valid) or red (behind camera). Uses the fundamental matrix and 4\u00d74 DLT system (HW3 Tasks 4\u20135).",
             "default_resolution": "420x380",
         },
     }),

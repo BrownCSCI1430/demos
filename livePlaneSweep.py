@@ -115,7 +115,7 @@ GUIDE_PLANE_SWEEP = [
 IMG_W, IMG_H = 400, 400
 OVERVIEW_SIZE = 400
 LAM_MIN, LAM_MAX = 0.5, 8.0
-LAM_TRUE = 4.5          # true reference distance (matches liveCamera/liveDLT setup)
+LAM_TRUE = 4.5          # true reference distance (matches liveCamera setup)
 N_SWEEP = 80            # number of depth hypotheses in the pre-computed curve
 
 # Camera setup
