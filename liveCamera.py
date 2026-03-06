@@ -7,15 +7,16 @@ Two synchronized panels: camera view and overhead overview with frustum wirefram
 Toggle between world and camera reference frame interpretations.
 """
 
+import cv2
 import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.demo_3d import (
     build_intrinsic, build_rotation, build_extrinsic, euler_from_rotation,
-    fov_to_focal, make_lookat_Rt,
+    fov_to_focal,
     render_scene, make_default_scene,
     make_frustum_mesh, make_axis_mesh, make_camera_axes_mesh,
-    format_matrix,
+    format_matrix, OrbitCamera,
 )
 from utils.demo_utils import convert_cv_to_dpg
 from utils.demo_ui import (
@@ -52,6 +53,7 @@ DEFAULTS = {
 }
 
 OVERVIEW_SIZE = 400
+RENDER_RES = 800  # Always render at max slider resolution
 
 GUIDE_CAMERA = [
     {"title": "The projection pipeline",
@@ -103,12 +105,6 @@ class State:
     cx_offset = DEFAULTS["cx_offset"]
     cy_offset = DEFAULTS["cy_offset"]
 
-    # Resolution tracking (for texture recreation)
-    _prev_img_w = DEFAULTS["img_w"]
-    _prev_img_h = DEFAULTS["img_h"]
-    _texture_counter = 0
-    _cam_texture_tag = "camera_texture_0"
-
     # Mode
     camera_frame = True  # False = world frame, True = camera frame
     show_symbolic = False  # False = numeric values, True = algebraic symbols
@@ -124,9 +120,9 @@ state = State()
 # Scene (created once)
 scene_meshes = make_default_scene()
 
-# Overview camera (fixed)
-overview_Rt = make_lookat_Rt(
-    eye=np.array([8.0, 6.0, 8.0]),
+# Overview camera (interactive orbit)
+OvCam = OrbitCamera(
+    eye0=np.array([8.0, 6.0, 8.0]),
     target=np.array([0.0, 0.5, 0.0]),
 )
 overview_K = build_intrinsic(
@@ -215,22 +211,6 @@ def _camera_extra_reset():
     _sync_sliders_to_state()
 
 
-def _recreate_camera_texture(w, h):
-    """Recreate the camera texture at a new resolution using a unique tag."""
-    old_tag = state._cam_texture_tag
-    state._texture_counter += 1
-    new_tag = f"camera_texture_{state._texture_counter}"
-    blank = [0.0] * (w * h * 4)
-    dpg.add_raw_texture(w, h, blank,
-                        format=dpg.mvFormat_Float_rgba, tag=new_tag,
-                        parent="texture_registry")
-    if dpg.does_item_exist("camera_image"):
-        dpg.configure_item("camera_image", texture_tag=new_tag)
-    state._cam_texture_tag = new_tag
-    if dpg.does_item_exist(old_tag):
-        dpg.delete_item(old_tag)
-
-
 def update_image_sizes():
     """Adjust image display sizes to fit viewport."""
     vp_width = dpg.get_viewport_client_width()
@@ -264,6 +244,9 @@ def compute_camera_frame(
 ):
     """Build K, [R|t], M matrices and render camera + overview images.
 
+    Renders at RENDER_RES then box-filter downsamples to (img_w, img_h) to
+    simulate sensor integration, and nearest-neighbor upscales for display.
+
     Returns (K, Rt, M, camera_img, overview_img).
     """
     iw, ih = int(img_w), int(img_h)
@@ -280,13 +263,23 @@ def compute_camera_frame(
     )
 
     M = K @ Rt
-    camera_img = render_scene(scene_meshes, K, Rt, iw, ih)
+
+    # Render at full resolution with K scaled up
+    K_render = K.copy()
+    K_render[0, :] *= RENDER_RES / iw
+    K_render[1, :] *= RENDER_RES / ih
+    hi_res = render_scene(scene_meshes, K_render, Rt, RENDER_RES, RENDER_RES)
+
+    # Box-filter downsample (sensor integration), then nearest-neighbor upscale
+    lo_res = cv2.resize(hi_res, (iw, ih), interpolation=cv2.INTER_AREA)
+    camera_img = cv2.resize(lo_res, (RENDER_RES, RENDER_RES),
+                            interpolation=cv2.INTER_NEAREST)
 
     frustum_meshes = make_frustum_mesh(K, Rt, iw, ih, near=0.3, far=5.0)
     world_axes = make_axis_mesh(origin=(0, 0, 0), length=1.5)
     cam_axes = make_camera_axes_mesh(Rt, length=0.8)
     overview_meshes = scene_meshes + frustum_meshes + world_axes + cam_axes
-    overview_img = render_scene(overview_meshes, overview_K, overview_Rt,
+    overview_img = render_scene(overview_meshes, overview_K, OvCam.make_Rt(),
                                 OVERVIEW_SIZE, OVERVIEW_SIZE)
 
     return K, Rt, M, camera_img, overview_img
@@ -303,8 +296,7 @@ def main():
     load_fonts()
 
     with dpg.texture_registry(tag="texture_registry"):
-        cam_w, cam_h = DEFAULTS["img_w"], DEFAULTS["img_h"]
-        create_blank_texture(cam_w, cam_h, state._cam_texture_tag)
+        create_blank_texture(RENDER_RES, RENDER_RES, "camera_texture")
         create_blank_texture(OVERVIEW_SIZE, OVERVIEW_SIZE, "overview_texture")
 
     with dpg.window(label="3D Camera Demo", tag="main_window"):
@@ -455,7 +447,7 @@ def main():
         with dpg.group(horizontal=True):
             with dpg.group():
                 dpg.add_text("", tag="camera_view_label", color=(150, 200, 255))
-                dpg.add_image(state._cam_texture_tag, tag="camera_image")
+                dpg.add_image("camera_texture", tag="camera_image")
             dpg.add_spacer(width=10)
             with dpg.group():
                 dpg.add_text("Overview (with frustum)", color=(150, 255, 150))
@@ -471,13 +463,8 @@ def main():
     # === Main loop ===
     while dpg.is_dearpygui_running():
         poll_collapsible_panels()
-        # Dynamic image resolution
+        OvCam.poll_drag("overview_image", sensitivity=0.008, el_clamp=(-0.2, 1.4))
         iw, ih = int(state.img_w), int(state.img_h)
-
-        # Recreate camera texture if resolution changed
-        if iw != state._prev_img_w or ih != state._prev_img_h:
-            _recreate_camera_texture(iw, ih)
-            state._prev_img_w, state._prev_img_h = iw, ih
 
         K, Rt, M, camera_img, overview_img = compute_camera_frame(
             state.focal_length, state.sensor_w, state.sensor_h,
@@ -492,7 +479,7 @@ def main():
         fy = state.focal_length * ih / state.sensor_h
 
         # Update textures
-        dpg.set_value(state._cam_texture_tag, convert_cv_to_dpg(camera_img))
+        dpg.set_value("camera_texture", convert_cv_to_dpg(camera_img))
         dpg.set_value("overview_texture", convert_cv_to_dpg(overview_img))
 
         # Update camera view label
