@@ -761,7 +761,7 @@ def make_camera_axes_mesh(Rt, length=0.8):
 # Default Scene
 # =============================================================================
 
-def create_default_scene():
+def make_default_scene():
     """Create the default 3D scene with basic primitives.
 
     Returns:
@@ -953,7 +953,7 @@ def make_checker_ground(y, extent, spacing, color_a, color_b):
             "color": color_a, "face_colors": face_colors}
 
 
-def create_textured_scene():
+def make_textured_scene():
     """Scene variant with checkerboard textures — same object layout as default.
 
     Returns:
@@ -1041,21 +1041,270 @@ def raycast_scene(scene, K, Rt, px, py, img_h, flip_y=True):
 # =============================================================================
 
 def format_matrix(mat, label=""):
-    """Format a matrix as a string for display.
+    """Format a matrix as an aligned bracket string for display.
 
     Args:
         mat: 2D ndarray
         label: optional label prefix
 
     Returns:
-        Formatted string
+        Formatted string, e.g.  [ 1.00  0.00 ]
     """
     rows, cols = mat.shape
     lines = []
     if label:
         lines.append(label)
     for r in range(rows):
-        row_str = "  ".join(f"{mat[r, c]:7.2f}" for c in range(cols))
-        bracket = "|" if 0 < r < rows - 1 else ("/" if r == 0 else "\\")
-        lines.append(f"  {bracket} {row_str} {bracket}")
+        cells = " ".join(f"{mat[r, c]:8.2f}" for c in range(cols))
+        lines.append(f"[ {cells} ]")
     return "\n".join(lines)
+
+
+# =============================================================================
+# Camera Geometry Math (shared across demos)
+# =============================================================================
+
+def compute_F_from_cameras(M1, M2):
+    """Compute the fundamental matrix F from two camera matrices.
+
+    Uses  F = [e2]_x @ M2 @ pinv(M1),  where e2 = M2 @ C1  is the epipole
+    of camera 1 projected into camera 2.
+
+    Args:
+        M1: (3, 4) camera matrix for view 1
+        M2: (3, 4) camera matrix for view 2
+
+    Returns:
+        F: (3, 3) fundamental matrix  (satisfies  x2^T F x1 = 0)
+    """
+    A1 = M1[:, :3]
+    C1 = np.linalg.solve(A1, -M1[:, 3])   # camera 1 centre in world coords
+    C1h = np.append(C1, 1.0)
+
+    e2 = M2 @ C1h                          # epipole in image 2, shape (3,)
+    e2x = np.array([
+        [0,      -e2[2],  e2[1]],
+        [e2[2],   0,     -e2[0]],
+        [-e2[1],  e2[0],  0    ],
+    ])
+
+    return e2x @ M2 @ np.linalg.pinv(M1)
+
+
+def epipolar_line_endpoints(l, img_w, img_h):
+    """Return two pixel endpoints of an epipolar line clipped to the image.
+
+    Args:
+        l: (3,) line coefficients [a, b, c] for  ax + by + c = 0
+        img_w, img_h: image dimensions in pixels
+
+    Returns:
+        (p1, p2): two (x, y) integer tuples, or (None, None) if degenerate
+    """
+    a, b, c = l
+    pts = []
+    if abs(b) > 1e-6:
+        y0 = -c / b
+        y1 = -(c + a * (img_w - 1)) / b
+        pts.append((0, int(y0)))
+        pts.append((img_w - 1, int(y1)))
+    if abs(a) > 1e-6:
+        x0 = -c / a
+        x1 = -(c + b * (img_h - 1)) / a
+        pts.append((int(x0), 0))
+        pts.append((int(x1), img_h - 1))
+
+    if len(pts) >= 2:
+        best_p1, best_p2, best_d = pts[0], pts[1], 0
+        for i in range(len(pts)):
+            for j in range(i + 1, len(pts)):
+                d = abs(pts[i][0] - pts[j][0]) + abs(pts[i][1] - pts[j][1])
+                if d > best_d:
+                    best_p1, best_p2, best_d = pts[i], pts[j], d
+        return best_p1, best_p2
+    return None, None
+
+
+def decompose_H(M_ref, M_other):
+    """Decompose two camera matrices into the H(λ) components B and a.
+
+    H(λ) = λ·B + outer(a, e3ᵀ)
+
+    B = A_other @ inv(A_ref)          homography at infinity
+    a = A_other @ C_ref + t_other     epipole-like translation term
+
+    Args:
+        M_ref:   (3, 4) reference camera matrix
+        M_other: (3, 4) other camera matrix
+
+    Returns:
+        B:     (3, 3)  homography at infinity
+        a:     (3,)    epipole term
+        C_ref: (3,)    reference camera centre in world coords
+    """
+    A_ref   = M_ref[:, :3]
+    t_ref   = M_ref[:, 3]
+    A_other = M_other[:, :3]
+    t_other = M_other[:, 3]
+
+    C_ref = np.linalg.solve(A_ref, -t_ref)
+    B     = A_other @ np.linalg.inv(A_ref)
+    a     = A_other @ C_ref + t_other
+    return B, a, C_ref
+
+
+def compute_H_lam(B, a, lam, alpha=1.0):
+    """Compute the depth-dependent homography H(λ) = λ·B + α·outer(a, e3ᵀ).
+
+    Args:
+        B:     (3, 3) homography at infinity (from decompose_H)
+        a:     (3,)   epipole term (from decompose_H)
+        lam:   float  depth hypothesis λ
+        alpha: float  weight of the epipole term (default 1.0 = correct H)
+
+    Returns:
+        H: (3, 3) homography for depth λ
+    """
+    e3 = np.array([0.0, 0.0, 1.0])
+    return lam * B + alpha * np.outer(a, e3)
+
+
+def flip_y_matrix(img_h):
+    """3x3 homography that flips y-coordinates for the display convention.
+
+    Camera matrices use un-flipped coordinates; images rendered with flip_y=True
+    have y increasing downward.  To convert H or F from camera coords to display
+    coords, conjugate with this matrix:
+
+        F_display = Fy.T @ F_raw @ Fy
+        H_display = Fy   @ H     @ Fy     (Fy is self-inverse)
+
+    Args:
+        img_h: Image height in pixels
+
+    Returns:
+        (3, 3) float64 matrix
+    """
+    return np.array([[1, 0, 0],
+                     [0, -1, img_h - 1],
+                     [0, 0, 1]], dtype=np.float64)
+
+
+def compute_stereo_cameras(K, baseline, convergence, distance,
+                           cam_y=0.5, ref_z=5.0, max_toe_in_deg=25.0):
+    """Compute stereo camera extrinsics and projection matrices.
+
+    Both cameras sit at y=cam_y.  The reference camera is at z=ref_z,
+    the other camera is at z=distance.  Each camera toes in by
+    convergence * max_toe_in_deg degrees.
+
+    Args:
+        K:               (3, 3) shared intrinsic matrix
+        baseline:        horizontal separation between cameras
+        convergence:     0 = fronto-parallel, 1 = max toe-in
+        distance:        z-position of the other camera (ref stays at ref_z)
+        cam_y:           y-height of both cameras
+        ref_z:           z-position of the reference camera
+        max_toe_in_deg:  maximum toe-in angle in degrees
+
+    Returns:
+        (Rt_ref, Rt_other, M_ref, M_other) — each Rt is (3,4), each M is (3,4)
+    """
+    max_toe_in = np.radians(max_toe_in_deg)
+
+    ref_eye   = np.array([-baseline / 2, cam_y, ref_z])
+    other_eye = np.array([ baseline / 2, cam_y, distance])
+
+    toe_in = convergence * max_toe_in
+    ref_shift   = ref_z    * np.tan(toe_in) if convergence > 1e-6 else 0.0
+    other_shift = distance * np.tan(toe_in) if convergence > 1e-6 else 0.0
+
+    ref_target   = np.array([-baseline / 2 + ref_shift,   cam_y, 0.0])
+    other_target = np.array([ baseline / 2 - other_shift, cam_y, 0.0])
+
+    Rt_ref   = make_lookat_Rt(ref_eye, ref_target)
+    Rt_other = make_lookat_Rt(other_eye, other_target)
+    M_ref    = K @ Rt_ref
+    M_other  = K @ Rt_other
+
+    return Rt_ref, Rt_other, M_ref, M_other
+
+
+# =============================================================================
+# Orbit Camera
+# =============================================================================
+
+class OrbitCamera:
+    """Spherical orbit camera for 3D overview panels.
+
+    Controls: drag to rotate (az/el), scroll to zoom (radius).
+
+    Usage:
+        ov_cam = OrbitCamera(eye0=np.array([0, 8, 12]),
+                             target=np.array([0, 0.5, 0]))
+        # In render loop:
+        ov_Rt = ov_cam.make_Rt()
+        # In mouse handler:
+        ov_cam.handle_drag(dx, dy)
+        ov_cam.handle_scroll(delta)
+    """
+
+    def __init__(self, eye0, target):
+        self._target = np.asarray(target, dtype=float)
+        d = np.asarray(eye0, dtype=float) - self._target
+        self._r0 = float(np.linalg.norm(d))
+        self._el0 = float(np.arcsin(np.clip(d[1] / self._r0, -1.0, 1.0)))
+        self._az0 = float(np.arctan2(d[0], d[2]))
+        self.reset()
+
+    def reset(self):
+        self.az = self._az0
+        self.el = self._el0
+        self.radius = self._r0
+        self._prev = None
+
+    def make_Rt(self):
+        """Return a (3, 4) look-at extrinsic from the current orbit position."""
+        eye = self._target + self.radius * np.array([
+            np.cos(self.el) * np.sin(self.az),
+            np.sin(self.el),
+            np.cos(self.el) * np.cos(self.az),
+        ])
+        return make_lookat_Rt(eye, self._target)
+
+    def handle_drag(self, dx, dy, sensitivity=0.01, el_clamp=(-1.4, 1.4)):
+        """Update az/el from a mouse drag delta (pixels)."""
+        self.az += dx * sensitivity
+        self.el = float(np.clip(self.el - dy * sensitivity, el_clamp[0], el_clamp[1]))
+
+    def handle_scroll(self, delta, sensitivity=0.5, min_r=3.0, max_r=30.0):
+        """Zoom by mouse scroll delta."""
+        self.radius = float(np.clip(self.radius - delta * sensitivity, min_r, max_r))
+
+    def poll_drag(self, *hover_tags, sensitivity=0.01, el_clamp=(-1.4, 1.4)):
+        """Poll mouse state and update orbit camera.  Call once per frame.
+
+        Drag (left-button held) rotates az/el; release resets tracking.
+        Only active when one of the hover_tags is hovered.
+
+        Args:
+            *hover_tags: DPG image/widget tags — drag is active when any is hovered
+            sensitivity: radians per pixel of mouse movement
+            el_clamp: (min, max) elevation limits in radians
+        """
+        import dearpygui.dearpygui as dpg
+
+        hovered = any(dpg.does_item_exist(t) and dpg.is_item_hovered(t)
+                      for t in hover_tags)
+        if hovered:
+            mx, my = dpg.get_mouse_pos(local=False)
+            if dpg.is_mouse_button_down(0):
+                if self._prev is not None:
+                    dx = mx - self._prev[0]
+                    dy = my - self._prev[1]
+                    self.handle_drag(dx, dy, sensitivity, el_clamp)
+                self._prev = (mx, my)
+            else:
+                self._prev = None
+        else:
+            self._prev = None

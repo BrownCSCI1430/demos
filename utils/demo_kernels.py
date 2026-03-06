@@ -27,7 +27,7 @@ SIGMA_KERNELS = ["Gaussian", "Laplacian of Gaussian"]
 ZERO_DC_KERNELS = ["Edge (Sobel X)", "Edge (Sobel Y)", "Laplacian", "Laplacian of Gaussian"]
 
 
-def create_kernel(kernel_type, size, sigma=1.0):
+def make_kernel(kernel_type, size, sigma=1.0):
     """Create a kernel of the specified type.
 
     Args:
@@ -170,7 +170,7 @@ def pad_kernel_to_image_size(kernel, image_shape):
     return padded
 
 
-def create_gaussian_kernel_fft(image_shape, sigma):
+def make_gaussian_kernel_fft(image_shape, sigma):
     """Create Gaussian kernel directly at image size, centered at (0,0) for FFT.
 
     This is more accurate than padding a small kernel for large sigma values.

@@ -38,6 +38,8 @@ from utils.demo_3d import (
     fov_to_focal, render_scene,
     make_frustum_mesh, make_axis_mesh,
     make_sphere, make_octahedron,
+    make_ground_grid,
+    OrbitCamera,
 )
 from utils.demo_utils import convert_cv_to_dpg
 from utils.demo_ui import (
@@ -46,6 +48,8 @@ from utils.demo_ui import (
     load_fonts, bind_mono_font,
     add_global_controls, control_panel,
     poll_collapsible_panels,
+    make_camera_callback,
+    create_blank_texture,
 )
 
 
@@ -109,13 +113,9 @@ _OV_K = build_intrinsic(
     0, OVERVIEW_SIZE / 2, OVERVIEW_SIZE / 2,
 )
 
-# Orbit camera initial position — spherical coords around a target point
+# Orbit camera initial position
 _OV_TARGET  = np.array([0.0, 0.5, 1.5])
 _OV_EYE0    = np.array([9.0, 7.0, 4.0])
-_d0         = _OV_EYE0 - _OV_TARGET
-_OV_R0      = float(np.linalg.norm(_d0))
-_OV_EL0     = float(np.arcsin(np.clip(_d0[1] / _OV_R0, -1.0, 1.0)))
-_OV_AZ0     = float(np.arctan2(_d0[0], _d0[2]))
 
 # 5x5x5 = 125 candidate 3D markers spread across X, Y, Z
 _ALL_PTS3D = np.array(
@@ -231,34 +231,7 @@ state = State()
 # Orbit Camera State
 # =============================================================================
 
-class OvCam:
-    """Spherical orbit camera for the 3D overview panel.
-
-    Controls:
-      Left-drag   : orbit (azimuth / elevation)
-      Scroll wheel: zoom in / out
-    """
-    az     = _OV_AZ0
-    el     = _OV_EL0
-    radius = _OV_R0
-    target = _OV_TARGET.copy()
-    _prev  = None   # previous mouse position during a drag
-
-    @classmethod
-    def reset(cls):
-        cls.az     = _OV_AZ0
-        cls.el     = _OV_EL0
-        cls.radius = _OV_R0
-        cls._prev  = None
-
-    @classmethod
-    def make_Rt(cls):
-        eye = cls.target + cls.radius * np.array([
-            np.cos(cls.el) * np.sin(cls.az),
-            np.sin(cls.el),
-            np.cos(cls.el) * np.cos(cls.az),
-        ])
-        return make_lookat_Rt(eye, cls.target)
+OvCam = OrbitCamera(eye0=_OV_EYE0, target=_OV_TARGET)
 
 
 # =============================================================================
@@ -399,37 +372,6 @@ def estimate_M_dlt(pts2d, pts3d, use_hartley=False, use_normal_eqs=False,
 # =============================================================================
 # Rendering Helpers
 # =============================================================================
-
-def make_ground_grid(y_level=-1.8, n_lines=9, color=(55, 55, 55)):
-    """Build a ground-plane grid as a line-segment mesh for render_scene.
-
-    Returns a mesh dict with 2-vertex faces (line segments) so the grid
-    participates in the painter's-algorithm depth sort instead of being
-    painted on top of everything.
-    """
-    xs = np.linspace(-2.5, 2.5, n_lines)
-    zs = np.linspace(-0.5, 4.5, n_lines)
-
-    verts = []
-    faces = []
-    idx = 0
-    for x in xs:
-        verts.append([x, y_level, zs[0]])
-        verts.append([x, y_level, zs[-1]])
-        faces.append([idx, idx + 1])
-        idx += 2
-    for z in zs:
-        verts.append([xs[0], y_level, z])
-        verts.append([xs[-1], y_level, z])
-        faces.append([idx, idx + 1])
-        idx += 2
-
-    return {
-        "vertices": np.array(verts, dtype=np.float64),
-        "faces": faces,
-        "color": color,
-    }
-
 
 def _draw_diamond(img, center, size, color, thickness=2):
     """Draw a hollow diamond (rotated square) marker."""
@@ -587,18 +529,15 @@ def main():
         dpg.add_mouse_wheel_handler(callback=on_mouse_wheel)
 
     with dpg.texture_registry(tag="texture_registry"):
-        blank_ov   = [0.0] * (OVERVIEW_SIZE * OVERVIEW_SIZE * 4)
-        blank_proj = [0.0] * (IMG_W * IMG_H * 4)
-        dpg.add_raw_texture(OVERVIEW_SIZE, OVERVIEW_SIZE, blank_ov,
-                            format=dpg.mvFormat_Float_rgba, tag="overview_tex")
-        dpg.add_raw_texture(IMG_W, IMG_H, blank_proj,
-                            format=dpg.mvFormat_Float_rgba, tag="proj_tex")
+        create_blank_texture(OVERVIEW_SIZE, OVERVIEW_SIZE, "overview_tex")
+        create_blank_texture(IMG_W, IMG_H, "proj_tex")
 
     with dpg.window(label="Camera Calibration Demo (DLT)", tag="main_window"):
 
         # ── Global controls ──────────────────────────────────────────────────
         add_global_controls(
             DEFAULTS, state,
+            camera_callback=make_camera_callback(state),
             reset_extra=_calib_extra_reset,
             guide=GUIDE_CALIBRATION, guide_title="Camera Calibration (DLT)",
         )
@@ -786,19 +725,7 @@ def main():
             M_ref = None
 
         # ── Orbit camera mouse controls ──────────────────────────────────────
-        if dpg.is_item_hovered("overview_img"):
-            mx, my = dpg.get_mouse_pos(local=False)
-            if dpg.is_mouse_button_down(0):
-                if OvCam._prev is not None:
-                    dx = mx - OvCam._prev[0]
-                    dy = my - OvCam._prev[1]
-                    OvCam.az += dx * 0.008
-                    OvCam.el  = float(np.clip(OvCam.el - dy * 0.008, -0.2, 1.4))
-                OvCam._prev = (mx, my)
-            else:
-                OvCam._prev = None
-        else:
-            OvCam._prev = None
+        OvCam.poll_drag("overview_img", sensitivity=0.008, el_clamp=(-0.2, 1.4))
 
         ov_Rt = OvCam.make_Rt()
 
@@ -818,7 +745,8 @@ def main():
             ]
         frustum = make_frustum_mesh(TRUE_K, _TRUE_Rt, IMG_W, IMG_H, near=0.5, far=9.0)
         axes    = make_axis_mesh(origin=(0, 0, 0), length=1.5)
-        grid    = [make_ground_grid()]
+        grid    = [make_ground_grid(y=-1.8, extent=2.5, spacing=0.625,
+                                      color=(55, 55, 55))]
 
         overview_img = render_scene(
             marker_meshes + frustum + axes + grid, _OV_K, ov_Rt,

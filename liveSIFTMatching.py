@@ -11,11 +11,12 @@ import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
-from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame, DATA_DIR
+from utils.demo_utils import convert_cv_to_dpg
+from utils.demo_webcam import init_camera_demo, cleanup_camera_demo, get_frame, DATA_DIR
 from utils.demo_ui import (
-    load_fonts, setup_viewport, make_state_updater, make_reset_callback,
+    setup_viewport, make_state_updater, make_reset_callback, make_camera_callback,
     add_global_controls, control_panel, create_parameter_table, add_parameter_row,
-    poll_collapsible_panels,
+    poll_collapsible_panels, auto_resize_images,
 )
 
 # Default values
@@ -76,28 +77,8 @@ state = State()
 
 
 def update_image_sizes():
-    vp_width = dpg.get_viewport_client_width()
-    vp_height = dpg.get_viewport_client_height()
-
-    available_width = vp_width - 50
-    available_height = vp_height - 220
-
-    # Use actual texture aspect ratio instead of hardcoded value
-    aspect_ratio = state.texture_width / state.texture_height
-
-    img_width = available_width
-    img_height = int(img_width / aspect_ratio)
-
-    if img_height > available_height:
-        img_height = available_height
-        img_width = int(img_height * aspect_ratio)
-
-    if dpg.does_item_exist("matching_image"):
-        dpg.configure_item("matching_image", width=img_width, height=img_height)
-
-
-def on_viewport_resize():
-    update_image_sizes()
+    aspect = state.texture_width / state.texture_height
+    auto_resize_images([("matching_image", 1.0, aspect)], margin_w=50, margin_h=220)
 
 
 def compute_sift_matches(frame, query_image, detector, match_distance, show_matches):
@@ -164,13 +145,6 @@ def update_query_image(sender, value):
 
 
 def main():
-    # Parse command-line arguments
-    import argparse
-    parser = argparse.ArgumentParser(description='SIFT Feature Matching Demo')
-    parser.add_argument('--width', type=int, default=None, help='Camera width')
-    parser.add_argument('--height', type=int, default=None, help='Camera height')
-    args = parser.parse_args()
-
     # Find image files in data directory
     file_prefix = DATA_DIR + '/'
 
@@ -187,9 +161,8 @@ def main():
         state.images = [""]
         state.image_names = ["No images"]
 
-    # Initialize camera first to get correct dimensions
-    state.cap, state.frame_width, state.frame_height, state.use_camera = \
-        init_camera(width=args.width, height=args.height)
+    # Initialize camera, fallback, DPG context, and fonts
+    frame_width, frame_height = init_camera_demo(state, "SIFT Feature Matching Demo")
 
     # Load first query image after camera initialization
     if state.images[0] and os.path.exists(state.images[0]):
@@ -206,14 +179,6 @@ def main():
     else:
         state.query_image = np.zeros((100, 100), dtype=np.uint8)
 
-    if not state.use_camera:
-        print("Warning: Could not open camera, using fallback image")
-
-    # Load fallback image
-    state.fallback_image = load_fallback_image()
-    if not state.use_camera:
-        state.cat_mode = True
-
     # Initialize SIFT
     detector = cv2.SIFT_create()
 
@@ -221,10 +186,6 @@ def main():
     query_width = state.query_image.shape[1] if state.query_image is not None and state.query_image.size > 0 else state.frame_width
     state.texture_width = query_width + state.frame_width  # Side-by-side width
     state.texture_height = state.frame_height  # Fixed height matches camera
-
-    dpg.create_context()
-
-    load_fonts()
 
     # Create texture registry and initial texture
     texture_width, texture_height = state.texture_width, state.texture_height
@@ -240,6 +201,7 @@ def main():
             DEFAULTS, state,
             cat_mode_callback=make_state_updater(state, "cat_mode"),
             pause_callback=make_state_updater(state, "pause"),
+            camera_callback=make_camera_callback(state),
             guide=GUIDE_SIFT, guide_title="SIFT Feature Matching",
         )
 
@@ -277,7 +239,7 @@ def main():
     # Setup viewport
     setup_viewport("CSCI 1430 - SIFT Matching",
                    1100, 650,
-                   "main_window", on_viewport_resize, DEFAULTS["ui_scale"])
+                   "main_window", update_image_sizes, DEFAULTS["ui_scale"])
 
     update_image_sizes()
 
@@ -345,9 +307,7 @@ def main():
 
         dpg.render_dearpygui_frame()
 
-    if state.use_camera and state.cap is not None:
-        state.cap.release()
-    dpg.destroy_context()
+    cleanup_camera_demo(state)
 
 
 if __name__ == "__main__":

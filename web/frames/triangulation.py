@@ -7,13 +7,13 @@ import numpy as np
 import cv2
 
 from liveEpipolarLines import (
-    triangulate_point, compute_F_from_cameras,
-    check_cheirality, reprojection_error, epipolar_line_endpoints,
+    triangulate_point,
+    check_cheirality, reprojection_error,
     draw_view,
     M1, M2, F_MATRIX, _BASE_LEFT, _BASE_RIGHT,
     K_SHARED, _Rt1, _Rt2, _OV_K, _OV_Rt, _SCENE,
     IMG_W, IMG_H, OVERVIEW_SIZE,
-    GUIDE_TRIANGULATION,
+    GUIDE_EPIPOLAR,
 )
 from utils.demo_3d import render_scene, make_frustum_mesh, make_axis_mesh, make_sphere
 
@@ -42,7 +42,7 @@ WEB_CONFIG = {
     },
     "mouse": ["left_img", "right_img"],
     "layout": {"rows": [["left_img", "right_img"], ["overview"]]},
-    "guide": GUIDE_TRIANGULATION,
+    "guide": GUIDE_EPIPOLAR,
 }
 
 

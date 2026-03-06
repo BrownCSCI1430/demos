@@ -14,13 +14,14 @@ import dearpygui.dearpygui as dpg
 from skimage import img_as_float
 from skimage.color import rgb2gray
 
-from utils.demo_utils import init_camera, load_fallback_image, convert_cv_to_dpg_float, crop_to_square, get_frame
+from utils.demo_utils import convert_cv_to_dpg_float, crop_to_square
+from utils.demo_webcam import init_camera_demo, cleanup_camera_demo, get_frame
 from utils.demo_ui import (
-    load_fonts, setup_viewport, make_state_updater, make_reset_callback,
+    setup_viewport, make_state_updater, make_reset_callback, make_camera_callback,
     add_global_controls, control_panel, create_parameter_table, add_parameter_row,
-    poll_collapsible_panels,
+    poll_collapsible_panels, auto_resize_images, create_blank_texture,
 )
-from utils.demo_kernels import create_kernel, pad_kernel_to_image_size, create_gaussian_kernel_fft, visualize_kernel
+from utils.demo_kernels import make_kernel, pad_kernel_to_image_size, make_gaussian_kernel_fft, visualize_kernel
 from utils.demo_fft import visualize_fft_amplitude, process_convolution, process_deconvolution
 
 # Default values
@@ -95,7 +96,7 @@ class State:
 state = State()
 
 
-def create_random_kernel(size):
+def make_random_kernel(size):
     """Create a random kernel, caching it in state."""
     if state.random_kernel is None or state.random_kernel_size != size:
         kernel = np.random.randn(size, size).astype(np.float64)
@@ -105,23 +106,14 @@ def create_random_kernel(size):
     return state.random_kernel
 
 
+_FRAC = 1.0 / 3.0
+_IMAGE_LAYOUT = [
+    ("input_image", _FRAC, 1.0), ("kernel_image", _FRAC, 1.0), ("result_image", _FRAC, 1.0),
+    ("image_fft", _FRAC, 1.0), ("kernel_fft", _FRAC, 1.0), ("product_fft", _FRAC, 1.0),
+]
+
 def update_image_sizes():
-    vp_width = dpg.get_viewport_client_width()
-    vp_height = dpg.get_viewport_client_height()
-
-    available_width = vp_width - 200
-    available_height = vp_height - 420
-
-    size = min(available_width // 3, available_height // 2)
-
-    for tag in ["input_image", "kernel_image", "result_image",
-                "image_fft", "kernel_fft", "product_fft"]:
-        if dpg.does_item_exist(tag):
-            dpg.configure_item(tag, width=size, height=size)
-
-
-def on_viewport_resize():
-    update_image_sizes()
+    auto_resize_images(_IMAGE_LAYOUT, margin_w=200, margin_h=420)
 
 
 def draw_convolution_symbol(drawlist_tag):
@@ -203,27 +195,7 @@ def update_kernel_size(sender, value):
 
 
 def main():
-    # Parse command-line arguments
-    import argparse
-    parser = argparse.ArgumentParser(description='Convolution Theorem Demo')
-    parser.add_argument('--width', type=int, default=320, help='Camera width')
-    parser.add_argument('--height', type=int, default=240, help='Camera height')
-    args = parser.parse_args()
-
-    # Initialize camera with optional resolution
-    state.cap, _, _, state.use_camera = init_camera(width=args.width, height=args.height)
-
-    if not state.use_camera:
-        print("Warning: No camera found, using fallback image")
-
-    # Load fallback image
-    state.fallback_image = load_fallback_image()
-    if not state.use_camera:
-        state.cat_mode = True
-
-    dpg.create_context()
-
-    load_fonts()
+    init_camera_demo(state, "Convolution Theorem Demo")
 
     # Create a large font for operator symbols (=, ×, ÷)
     large_font = None
@@ -240,13 +212,12 @@ def main():
 
     size = state.frame_size
     with dpg.texture_registry():
-        blank_data = [0.0] * (size * size * 4)
-        dpg.add_raw_texture(size, size, blank_data, format=dpg.mvFormat_Float_rgba, tag="input_texture")
-        dpg.add_raw_texture(size, size, blank_data, format=dpg.mvFormat_Float_rgba, tag="kernel_texture")
-        dpg.add_raw_texture(size, size, blank_data, format=dpg.mvFormat_Float_rgba, tag="result_texture")
-        dpg.add_raw_texture(size, size, blank_data, format=dpg.mvFormat_Float_rgba, tag="image_fft_texture")
-        dpg.add_raw_texture(size, size, blank_data, format=dpg.mvFormat_Float_rgba, tag="kernel_fft_texture")
-        dpg.add_raw_texture(size, size, blank_data, format=dpg.mvFormat_Float_rgba, tag="product_fft_texture")
+        create_blank_texture(size, size, "input_texture")
+        create_blank_texture(size, size, "kernel_texture")
+        create_blank_texture(size, size, "result_texture")
+        create_blank_texture(size, size, "image_fft_texture")
+        create_blank_texture(size, size, "kernel_fft_texture")
+        create_blank_texture(size, size, "product_fft_texture")
 
     with dpg.window(label="Convolution Theorem Demo", tag="main_window"):
         # Global controls row
@@ -257,6 +228,7 @@ def main():
             DEFAULTS, state,
             cat_mode_callback=make_state_updater(state, "cat_mode"),
             pause_callback=make_state_updater(state, "pause"),
+            camera_callback=make_camera_callback(state),
             reset_extra=_extra_reset,
             guide=GUIDE_CONV_THEOREM, guide_title="Convolution Theorem",
         )
@@ -367,7 +339,7 @@ def main():
     # Setup viewport
     setup_viewport("CSCI 1430 - Convolution Theorem",
                    size * 3 + 350, size * 2 + 500,
-                   "main_window", on_viewport_resize, DEFAULTS["ui_scale"])
+                   "main_window", update_image_sizes, DEFAULTS["ui_scale"])
     dpg.maximize_viewport()
 
     update_image_sizes()
@@ -386,13 +358,13 @@ def main():
 
             # Create kernel (use cached random kernel for "Random" type)
             if state.kernel_type == "Random":
-                kernel = create_random_kernel(state.kernel_size)
+                kernel = make_random_kernel(state.kernel_size)
                 kernel_padded = pad_kernel_to_image_size(kernel, im.shape)
             elif state.kernel_type == "Gaussian":
-                kernel_padded = create_gaussian_kernel_fft(im.shape, state.gaussian_sigma)
-                kernel = create_kernel(state.kernel_type, state.kernel_size, state.gaussian_sigma)
+                kernel_padded = make_gaussian_kernel_fft(im.shape, state.gaussian_sigma)
+                kernel = make_kernel(state.kernel_type, state.kernel_size, state.gaussian_sigma)
             else:
-                kernel = create_kernel(state.kernel_type, state.kernel_size, state.gaussian_sigma)
+                kernel = make_kernel(state.kernel_type, state.kernel_size, state.gaussian_sigma)
                 kernel_padded = pad_kernel_to_image_size(kernel, im.shape)
 
             if state.mode == "Convolution":
@@ -432,9 +404,7 @@ def main():
 
         dpg.render_dearpygui_frame()
 
-    if state.use_camera and state.cap is not None:
-        state.cap.release()
-    dpg.destroy_context()
+    cleanup_camera_demo(state)
 
 
 if __name__ == "__main__":

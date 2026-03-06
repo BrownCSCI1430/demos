@@ -29,8 +29,11 @@ from utils.demo_3d import (
     build_intrinsic, make_lookat_Rt,
     fov_to_focal, render_scene,
     make_frustum_mesh, make_axis_mesh,
-    make_sphere, make_cube, create_default_scene,
+    make_sphere, make_cube, make_default_scene,
     make_ground_grid, raycast_scene,
+    decompose_H, compute_H_lam, format_matrix,
+    OrbitCamera,
+    flip_y_matrix, compute_stereo_cameras,
 )
 from utils.demo_utils import convert_cv_to_dpg
 from utils.demo_ui import (
@@ -38,6 +41,9 @@ from utils.demo_ui import (
     create_parameter_table, add_parameter_row,
     add_global_controls, bind_mono_font, control_panel,
     poll_collapsible_panels,
+    get_image_pixel_coords,
+    make_camera_callback,
+    create_blank_texture,
 )
 
 
@@ -135,13 +141,6 @@ CAMERA_PRESETS = [
 ]
 PRESET_NAMES = [p[0] for p in CAMERA_PRESETS]
 
-# Camera geometry constants
-_CAM_Y = 0.5
-_REF_Z = 5.0          # reference camera always at z=5
-_MAX_TOE_IN_DEG = 25  # max convergence angle in degrees
-_MAX_TOE_IN = np.radians(_MAX_TOE_IN_DEG)
-
-
 class Cam:
     """Mutable camera state — updated when baseline/convergence changes."""
     Rt_ref = None
@@ -159,32 +158,18 @@ def apply_camera_params(baseline, convergence, distance):
     """Compute cameras from (baseline, convergence, distance) and re-render.
 
     baseline:     horizontal separation between cameras
-    convergence:  0 = fronto-parallel, 1 = max toe-in (25°)
-                  Toe-in angle = convergence * 25°, independent of distance.
-    distance:     z-position of the OTHER camera only (ref stays at z=_REF_Z).
-                  distance=5 → same z as ref (symmetric).
-                  distance<5 → other camera closer to scene → epipole enters ref view.
+    convergence:  0 = fronto-parallel, 1 = max toe-in (25 deg)
+                  Toe-in angle = convergence * 25 deg, independent of distance.
+    distance:     z-position of the OTHER camera only (ref stays at z=5).
+                  distance=5 -> same z as ref (symmetric).
+                  distance<5 -> other camera closer to scene -> epipole enters ref view.
     """
-    ref_eye   = np.array([-baseline / 2, _CAM_Y, _REF_Z])
-    other_eye = np.array([ baseline / 2, _CAM_Y, distance])
-
-    # Toe-in angle: each camera toes in by the same angle
-    toe_in = convergence * _MAX_TOE_IN
-    ref_shift   = _REF_Z   * np.tan(toe_in) if convergence > 1e-6 else 0.0
-    other_shift = distance * np.tan(toe_in) if convergence > 1e-6 else 0.0
-
-    # Each camera toes inward (ref looks rightward, other looks leftward)
-    ref_target   = np.array([-baseline / 2 + ref_shift,   _CAM_Y, 0.0])
-    other_target = np.array([ baseline / 2 - other_shift, _CAM_Y, 0.0])
-
-    cam.Rt_ref   = make_lookat_Rt(ref_eye, ref_target)
-    cam.Rt_other = make_lookat_Rt(other_eye, other_target)
-    cam.M_ref    = K_SHARED @ cam.Rt_ref
-    cam.M_other  = K_SHARED @ cam.Rt_other
+    cam.Rt_ref, cam.Rt_other, cam.M_ref, cam.M_other = \
+        compute_stereo_cameras(K_SHARED, baseline, convergence, distance)
     cam.ref_img, z_buf = render_scene(_SCENE, K_SHARED, cam.Rt_ref,
                                       IMG_W, IMG_H, flip_y=True,
                                       return_zbuf=True)
-    # Convert z-buffer to depth map: inf (background) → NaN
+    # Convert z-buffer to depth map: inf (background) -> NaN
     gt = z_buf.copy()
     gt[gt == np.inf] = np.nan
     cam.gt_depth = gt
@@ -194,61 +179,21 @@ def apply_camera_params(baseline, convergence, distance):
 
 
 # Create scene and initialize default cameras
-_SCENE = create_default_scene()
+_SCENE = make_default_scene()
 apply_camera_params(DEFAULTS["cam_baseline"], DEFAULTS["cam_convergence"], DEFAULTS["cam_distance"])
 
 # Overview camera (orbit camera for 3D visualization)
-_OV_TARGET = np.array([0.0, 0.5, 0.0])
-_OV_EYE0 = np.array([0.0, 8.0, 12.0])
-_d0 = _OV_EYE0 - _OV_TARGET
-_OV_R0 = float(np.linalg.norm(_d0))
-_OV_EL0 = float(np.arcsin(np.clip(_d0[1] / _OV_R0, -1.0, 1.0)))
-_OV_AZ0 = float(np.arctan2(_d0[0], _d0[2]))
-
 _OV_K  = build_intrinsic(fov_to_focal(50, OVERVIEW_SIZE), fov_to_focal(50, OVERVIEW_SIZE),
                           0, OVERVIEW_SIZE / 2, OVERVIEW_SIZE / 2)
 
-
-class OvCam:
-    """Spherical orbit camera for the 3D overview."""
-    az = _OV_AZ0
-    el = _OV_EL0
-    radius = _OV_R0
-    target = _OV_TARGET.copy()
-    _prev = None
-
-    @classmethod
-    def reset(cls):
-        cls.az = _OV_AZ0
-        cls.el = _OV_EL0
-        cls.radius = _OV_R0
-        cls._prev = None
-
-    @classmethod
-    def make_Rt(cls):
-        eye = cls.target + cls.radius * np.array([
-            np.cos(cls.el) * np.sin(cls.az),
-            np.sin(cls.el),
-            np.cos(cls.el) * np.cos(cls.az),
-        ])
-        return make_lookat_Rt(eye, cls.target)
+OvCam = OrbitCamera(eye0=np.array([0.0, 8.0, 12.0]),
+                    target=np.array([0.0, 0.5, 0.0]))
 
 
 # =============================================================================
 # Plane Sweep Math
 # =============================================================================
 
-def decompose_H(M_ref, M_other):
-    """Decompose into B and a:  H(λ) = λ·B + outer(a, e₃ᵀ)."""
-    A_ref   = M_ref[:, :3]
-    t_ref   = M_ref[:, 3]
-    A_other = M_other[:, :3]
-    t_other = M_other[:, 3]
-
-    C_ref = np.linalg.solve(A_ref, -t_ref)      # (3,) camera center
-    B     = A_other @ np.linalg.inv(A_ref)       # (3×3) homography at infinity
-    a     = A_other @ C_ref + t_other            # (3,) epipole-like term
-    return B, a
 
 
 def compute_epipole_ref(M_ref, M_other, img_h):
@@ -277,12 +222,6 @@ def compute_epipole_ref(M_ref, M_other, img_h):
         return (ex, ey)
 
 
-def compute_H_lam(M_ref, M_other, lam):
-    """H(λ) = λ·B + outer(a, e₃ᵀ)  [HW3 Task 2 — compute_depth_homography]."""
-    B, a = decompose_H(M_ref, M_other)
-    e3 = np.array([0.0, 0.0, 1.0])
-    H = lam * B + np.outer(a, e3)               # (3×3)
-    return H
 
 
 def warp_other_to_ref(other_img, H, img_w, img_h):
@@ -292,10 +231,8 @@ def warp_other_to_ref(other_img, H, img_w, img_h):
     Conjugate with the vertical flip matrix F so the warp is correct in
     display coordinates: H_display = F · H · F.
     """
-    F = np.array([[1, 0, 0],
-                  [0, -1, img_h - 1],
-                  [0, 0, 1]], dtype=np.float64)
-    H_display = F @ H @ F
+    Fy = flip_y_matrix(img_h)
+    H_display = Fy @ H @ Fy
     return cv2.warpPerspective(
         other_img, H_display, (img_w, img_h),
         flags=cv2.INTER_LINEAR | cv2.WARP_INVERSE_MAP,
@@ -357,14 +294,6 @@ _LAM_CURVE = np.linspace(LAM_MIN, LAM_MAX, N_SWEEP)
 # Matrix / Depth-map helpers
 # =============================================================================
 
-def _fmt_mat(mat):
-    """Format matrix with square brackets for display."""
-    rows, cols = mat.shape
-    lines = []
-    for r in range(rows):
-        cells = "  ".join(f"{mat[r, c]:7.2f}" for c in range(cols))
-        lines.append(f"[ {cells} ]")
-    return "\n".join(lines)
 
 
 def compute_ncc_map(ref, warped, patch_size):
@@ -412,8 +341,9 @@ def compute_ncc_depth_image(ref, other, M_ref, M_other, img_w, img_h,
     best_ncc = np.full((img_h, img_w), -2.0, dtype=np.float64)
     best_lam = np.full((img_h, img_w), np.nan, dtype=np.float64)
 
+    B, a, _ = decompose_H(M_ref, M_other)
     for lam in lam_range:
-        H = compute_H_lam(M_ref, M_other, lam)
+        H = compute_H_lam(B, a, lam)
         w = warp_other_to_ref(other, H, img_w, img_h)
         ncc_map = compute_ncc_map(ref, w, patch_size)
         better = valid_mask & (ncc_map > best_ncc)
@@ -549,7 +479,7 @@ def on_mouse_wheel(sender, app_data):
     """Zoom orbit camera on scroll wheel."""
     if (dpg.is_item_hovered("gm_overview_img")
             or dpg.is_item_hovered("sw_overview_img")):
-        OvCam.radius = np.clip(OvCam.radius - app_data * 0.5, 3.0, 30.0)
+        OvCam.handle_scroll(app_data)
 
 
 # ── Mouse click callback for point selection ────────────────────────────────────
@@ -559,19 +489,10 @@ def on_mouse_click(sender, app_data):
     for img_tag in ("gm_ref_img", "gm_warped_img",
                     "sw_ref_img", "sw_warped_img"):
         if dpg.is_item_hovered(img_tag):
-            mx, my = dpg.get_mouse_pos(local=False)
-            img_pos = dpg.get_item_rect_min(img_tag)
-            img_size = dpg.get_item_rect_size(img_tag)
-
-            local_x = mx - img_pos[0]
-            local_y = my - img_pos[1]
-
-            if img_size[0] > 0 and img_size[1] > 0:
-                px = int(local_x / img_size[0] * IMG_W)
-                py = int(local_y / img_size[1] * IMG_H)
-
-                state.point_x = np.clip(px, 0, IMG_W - 1)
-                state.point_y = np.clip(py, 0, IMG_H - 1)
+            coords = get_image_pixel_coords(img_tag, IMG_W, IMG_H)
+            if coords is not None:
+                state.point_x = int(np.clip(coords[0], 0, IMG_W - 1))
+                state.point_y = int(np.clip(coords[1], 0, IMG_H - 1))
 
                 # Raycast to get ground-truth depth at this pixel
                 hit = raycast_scene(_SCENE, K_SHARED, cam.Rt_ref,
@@ -590,19 +511,13 @@ def main():
 
     with dpg.handler_registry():
         dpg.add_mouse_wheel_handler(callback=on_mouse_wheel)
-        dpg.add_mouse_click_handler(button=0, callback=on_mouse_click)
 
     # ── Textures ──────────────────────────────────────────────────────────────
     with dpg.texture_registry(tag="texture_registry"):
-        blank = [0.0] * (IMG_W * IMG_H * 4)
         for t in ["ref_tex", "warped_tex", "depth_tex"]:
-            dpg.add_raw_texture(IMG_W, IMG_H, list(blank),
-                                format=dpg.mvFormat_Float_rgba, tag=t)
-        dpg.add_raw_texture(400, 300, [0.0] * (400 * 300 * 4),
-                            format=dpg.mvFormat_Float_rgba, tag="curve_tex")
-        dpg.add_raw_texture(OVERVIEW_SIZE, OVERVIEW_SIZE,
-                            [0.0] * (OVERVIEW_SIZE * OVERVIEW_SIZE * 4),
-                            format=dpg.mvFormat_Float_rgba, tag="overview_tex")
+            create_blank_texture(IMG_W, IMG_H, t)
+        create_blank_texture(400, 300, "curve_tex")
+        create_blank_texture(OVERVIEW_SIZE, OVERVIEW_SIZE, "overview_tex")
 
     # ── Callbacks (defined before UI) ─────────────────────────────────────────
     def on_preset_selected(sender, value):
@@ -655,6 +570,7 @@ def main():
                 dpg.set_value("mode_radio", DEFAULTS["mode"])
 
         add_global_controls(DEFAULTS, state,
+                            camera_callback=make_camera_callback(state),
                             reset_extra=_extra_reset,
                             guide=GUIDE_PLANE_SWEEP, guide_title="Plane Sweep Stereo")
         dpg.add_separator()
@@ -895,28 +811,14 @@ def main():
         dpg.configure_item("sweep_images", show=not is_geom)
 
         # ── Orbit camera mouse handling ──────────────────────────────────────
-        ov_hovered = (dpg.is_item_hovered("gm_overview_img")
-                      or dpg.is_item_hovered("sw_overview_img"))
-        if ov_hovered:
-            mx, my = dpg.get_mouse_pos(local=False)
-            if dpg.is_mouse_button_down(0):
-                if OvCam._prev is not None:
-                    dx = mx - OvCam._prev[0]
-                    dy = my - OvCam._prev[1]
-                    OvCam.az += dx * 0.01
-                    OvCam.el = np.clip(OvCam.el - dy * 0.01, -1.4, 1.4)
-                OvCam._prev = (mx, my)
-            else:
-                OvCam._prev = None
-        else:
-            OvCam._prev = None
+        OvCam.poll_drag("gm_overview_img", "sw_overview_img")
 
         lam = float(state.lam)
         patch_size = int(state.patch_size)
         alpha = float(state.epipole_weight)
 
         # ── Compute H(lambda) and warp ───────────────────────────────────────
-        B, a = decompose_H(cam.M_ref, cam.M_other)
+        B, a, _ = decompose_H(cam.M_ref, cam.M_other)
         e3 = np.array([0.0, 0.0, 1.0])
         outer_ae3 = np.outer(a, e3)
         H = lam * B + alpha * outer_ae3
@@ -1056,7 +958,7 @@ def main():
                 else:
                     # Own frame: epipolar line passes through e' and
                     # B @ p_ref (infinite-depth projection of clicked pt).
-                    B, _ = decompose_H(cam.M_ref, cam.M_other)
+                    B, _, _C = decompose_H(cam.M_ref, cam.M_other)
                     p_uf = np.array([cx, IMG_H - 1 - cy, 1.0])
                     q = B @ p_uf
                     if abs(q[2]) > 1e-8:
@@ -1132,9 +1034,9 @@ def main():
         # ── Matrix display toggle ─────────────────────────────────────────
         dpg.configure_item("matrix_group", show=state.show_matrices)
         if state.show_matrices:
-            dpg.set_value("lam_b_text", _fmt_mat(lam * B))
-            dpg.set_value("outer_text", _fmt_mat(alpha * outer_ae3))
-            dpg.set_value("h_text", _fmt_mat(H))
+            dpg.set_value("lam_b_text", format_matrix(lam * B))
+            dpg.set_value("outer_text", format_matrix(alpha * outer_ae3))
+            dpg.set_value("h_text", format_matrix(H))
             if alpha < 1.0 - 1e-6:
                 dpg.set_value("outer_label",
                               f"+   \u03b1\u00b7a e\u2083\u1d40"
@@ -1154,7 +1056,7 @@ def main():
             dpg.set_value("patch_size_display", f"{patch_size} px")
 
         # ── Status bar ───────────────────────────────────────────────────────
-        toe_in_deg = state.cam_convergence * _MAX_TOE_IN_DEG
+        toe_in_deg = state.cam_convergence * 25.0
         conv_label = ("parallel" if toe_in_deg < 0.5
                       else f"toe-in={toe_in_deg:.1f}\u00b0")
         cam_status = (f"baseline={state.cam_baseline:.2f}  {conv_label}"

@@ -10,11 +10,12 @@ import cv2
 import numpy as np
 import dearpygui.dearpygui as dpg
 
-from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
+from utils.demo_utils import convert_cv_to_dpg
+from utils.demo_webcam import init_camera_demo, cleanup_camera_demo, get_frame
 from utils.demo_ui import (
-    add_global_controls, load_fonts, setup_viewport, make_state_updater,
+    add_global_controls, setup_viewport, make_state_updater, make_camera_callback,
     make_reset_callback, control_panel, create_parameter_table, add_parameter_row,
-    poll_collapsible_panels,
+    poll_collapsible_panels, auto_resize_images, create_blank_texture,
 )
 
 # Default values
@@ -67,33 +68,10 @@ state = State()
 
 
 def update_image_sizes():
-    """Update image display sizes based on viewport dimensions"""
-    vp_width = dpg.get_viewport_client_width()
-    vp_height = dpg.get_viewport_client_height()
-
-    available_width = vp_width - 50
-    available_height = vp_height - 240
-
-    aspect_ratio = state.frame_width / state.frame_height
-
-    canny_width = int(available_width / (1 + state.input_ratio))
-    canny_height = int(canny_width / aspect_ratio)
-
-    if canny_height > available_height:
-        canny_height = available_height
-        canny_width = int(canny_height * aspect_ratio)
-
-    input_width = int(canny_width * state.input_ratio)
-    input_height = int(canny_height * state.input_ratio)
-
-    if dpg.does_item_exist("input_image"):
-        dpg.configure_item("input_image", width=input_width, height=input_height)
-    if dpg.does_item_exist("canny_image"):
-        dpg.configure_item("canny_image", width=canny_width, height=canny_height)
-
-
-def on_viewport_resize():
-    update_image_sizes()
+    r = state.input_ratio
+    aspect = state.frame_width / state.frame_height
+    layout = [("input_image", r / (1 + r), aspect), ("canny_image", 1 / (1 + r), aspect)]
+    auto_resize_images(layout, margin_w=50, margin_h=240)
 
 
 # Canny threshold callbacks need special logic to keep low <= high
@@ -126,39 +104,11 @@ def process_frame():
 
 
 def main():
-    # Parse command-line arguments
-    import argparse
-    parser = argparse.ArgumentParser(description='Canny Edge Detection Demo')
-    parser.add_argument('--width', type=int, default=None, help='Camera width')
-    parser.add_argument('--height', type=int, default=None, help='Camera height')
-    args = parser.parse_args()
-
-    # Initialize camera with optional resolution
-    state.cap, state.frame_width, state.frame_height, state.use_camera = \
-        init_camera(width=args.width, height=args.height)
-
-    if not state.use_camera:
-        print("Warning: Could not open camera, using fallback image")
-
-    # Load fallback image
-    state.fallback_image = load_fallback_image()
-    if not state.use_camera:
-        state.frame_height, state.frame_width = state.fallback_image.shape[:2]
-        state.cat_mode = True
-
-    frame_width, frame_height = state.frame_width, state.frame_height
-
-    # Initialize Dear PyGui
-    dpg.create_context()
-
-    load_fonts()
+    frame_width, frame_height = init_camera_demo(state, "Canny Edge Detection Demo")
 
     with dpg.texture_registry():
-        blank_data = [0.0] * (frame_width * frame_height * 4)
-        dpg.add_raw_texture(frame_width, frame_height, blank_data,
-                          format=dpg.mvFormat_Float_rgba, tag="input_texture")
-        dpg.add_raw_texture(frame_width, frame_height, blank_data,
-                          format=dpg.mvFormat_Float_rgba, tag="canny_texture")
+        create_blank_texture(frame_width, frame_height, "input_texture")
+        create_blank_texture(frame_width, frame_height, "canny_texture")
 
     # Create main window
     with dpg.window(label="Canny Edge Detection Demo", tag="main_window"):
@@ -167,6 +117,7 @@ def main():
             DEFAULTS, state,
             cat_mode_callback=make_state_updater(state, "cat_mode"),
             pause_callback=make_state_updater(state, "pause"),
+            camera_callback=make_camera_callback(state),
             guide=GUIDE_CANNY, guide_title="Canny Edge Detection",
         )
 
@@ -209,7 +160,7 @@ def main():
     # Setup viewport
     initial_width = int(frame_width * (1 + state.input_ratio) + 100)
     setup_viewport("CSCI 1430 - Canny Edge Detection", initial_width, frame_height + 280,
-                   "main_window", on_viewport_resize, DEFAULTS["ui_scale"])
+                   "main_window", update_image_sizes, DEFAULTS["ui_scale"])
 
     update_image_sizes()
 
@@ -228,10 +179,7 @@ def main():
 
         dpg.render_dearpygui_frame()
 
-    # Cleanup
-    if state.use_camera and state.cap is not None:
-        state.cap.release()
-    dpg.destroy_context()
+    cleanup_camera_demo(state)
 
 
 if __name__ == "__main__":

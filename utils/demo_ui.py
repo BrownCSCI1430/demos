@@ -50,7 +50,7 @@ _MAX_UI_SCALE = 3.0
 _ATLAS_FONT_SIZE = int(_BASE_FONT_SIZE * _MAX_UI_SCALE + 0.5)   # 42 px
 
 
-def load_fonts(size=None):
+def load_fonts():
     """Load proportional + monospace fonts with Unicode glyph support.
 
     The font is rasterized at a large size (_ATLAS_FONT_SIZE = 42 px) so that
@@ -59,9 +59,6 @@ def load_fonts(size=None):
 
     Must be called after dpg.create_context() and before building any windows.
     Binds the proportional font as the global default.
-
-    Args:
-        size: Ignored (kept for call-site compatibility).
 
     Returns:
         (default_font, mono_font) — DPG font handles.
@@ -107,7 +104,7 @@ def load_fonts(size=None):
     return _default_font, _mono_font
 
 
-def _ui_scale_to_gfs(ui_scale):
+def ui_scale_to_gfs(ui_scale):
     """Convert a user-facing UI scale value to a global-font-scale value.
 
     Because the atlas is rasterized at _MAX_UI_SCALE (3×), the GFS is always
@@ -144,7 +141,7 @@ def make_ui_scale_callback():
         Callback function that updates global font scale
     """
     def callback(sender, value):
-        dpg.set_global_font_scale(_ui_scale_to_gfs(value))
+        dpg.set_global_font_scale(ui_scale_to_gfs(value))
     return callback
 
 
@@ -207,6 +204,26 @@ def make_reset_all_callback(defaults, state, extra_reset=None):
         if extra_reset:
             extra_reset()
     return callback
+
+
+def make_camera_callback(state):
+    """Factory for camera-selector combo callback.
+
+    Switches the active camera when the user picks a different device
+    from the combo. Requires ``switch_camera`` from ``demo_webcam``.
+
+    Args:
+        state: State object with camera_id, use_camera, cap, etc.
+    """
+    from utils.demo_webcam import switch_camera
+
+    def _on_camera_change(sender, app_data):
+        new_id = int(app_data.split()[-1])
+        if new_id == state.camera_id and state.use_camera:
+            return
+        switch_camera(state, new_id)
+
+    return _on_camera_change
 
 
 # =============================================================================
@@ -298,11 +315,12 @@ def control_panel(label, width=0, height=0, color=None,
 
 
 def add_global_controls(defaults, state, cat_mode_callback=None,
-                        pause_callback=None, reset_extra=None,
+                        pause_callback=None, camera_callback=None,
+                        reset_extra=None,
                         guide=None, guide_title="Guide"):
     """Add standard global controls row.
 
-    Layout: [Reset All] [UI Scale] [Cat Mode] [Pause] [(no webcam)] [Guide ?]
+    Layout: [Reset All] [UI Scale] [Camera] [Cat Mode] [Pause] [(no webcam)] [Guide ?]
 
     Args:
         defaults: Dictionary containing default values (must have "ui_scale")
@@ -310,6 +328,8 @@ def add_global_controls(defaults, state, cat_mode_callback=None,
         cat_mode_callback: Callback for cat mode checkbox (None to hide)
         pause_callback: Callback for pause checkbox (None to hide).
             Enabled only when a camera is present.
+        camera_callback: Callback for camera selector combo.
+            Shown only when multiple cameras are available (state.camera_list).
         reset_extra: Optional callable for demo-specific reset logic beyond DEFAULTS
         guide: Optional list of {"title": ..., "body": ...} guide steps
         guide_title: Title for the guide modal window
@@ -329,6 +349,19 @@ def add_global_controls(defaults, state, cat_mode_callback=None,
             width=80
         )
         dpg.add_spacer(width=20)
+
+        # Camera selector (only when multiple cameras detected)
+        cam_list = getattr(state, "camera_list", [])
+        if camera_callback is not None and len(cam_list) > 1:
+            cam_labels = [f"Camera {i}" for i in cam_list]
+            dpg.add_combo(
+                cam_labels,
+                default_value=f"Camera {getattr(state, 'camera_id', 0)}",
+                callback=camera_callback,
+                width=120,
+                tag="camera_combo",
+            )
+            dpg.add_spacer(width=20)
 
         if cat_mode_callback is not None:
             dpg.add_checkbox(
@@ -499,25 +532,8 @@ def setup_viewport(title, width, height, main_window_tag, resize_callback, ui_sc
     dpg.show_viewport()
     dpg.set_primary_window(main_window_tag, True)
     dpg.bind_item_handler_registry(main_window_tag, "viewport_handler")
-    dpg.set_global_font_scale(_ui_scale_to_gfs(ui_scale))
+    dpg.set_global_font_scale(ui_scale_to_gfs(ui_scale))
 
-
-def create_texture(width, height, tag):
-    """Create a blank RGBA texture.
-
-    Must be called within a dpg.texture_registry context.
-
-    Args:
-        width: Texture width in pixels
-        height: Texture height in pixels
-        tag: Unique tag for the texture
-    """
-    blank_data = [0.0] * (width * height * 4)
-    dpg.add_raw_texture(
-        width, height, blank_data,
-        format=dpg.mvFormat_Float_rgba,
-        tag=tag
-    )
 
 
 def add_status_section():
@@ -528,6 +544,21 @@ def add_status_section():
     dpg.add_separator()
     dpg.add_text("", tag="status_text")
     dpg.add_separator()
+
+
+def create_blank_texture(width, height, tag):
+    """Create a blank RGBA float32 DPG texture.
+
+    Must be called inside a ``dpg.texture_registry()`` block.
+
+    Args:
+        width: Texture width in pixels.
+        height: Texture height in pixels.
+        tag: DPG tag for the texture.
+    """
+    blank = [0.0] * (width * height * 4)
+    dpg.add_raw_texture(width, height, blank,
+                        format=dpg.mvFormat_Float_rgba, tag=tag)
 
 
 def add_image_pair(label1, texture1, image_tag1, label2, texture2, image_tag2):
@@ -551,39 +582,82 @@ def add_image_pair(label1, texture1, image_tag1, label2, texture2, image_tag2):
             dpg.add_image(texture2, tag=image_tag2)
 
 
-def create_dual_parameter_table():
-    """Create a 7-column table for dual-column parameter layouts.
+def get_image_pixel_coords(img_tag, img_w, img_h):
+    """Convert current mouse position to image pixel coordinates.
 
-    Layout: Label1 | Slider1 | Reset1 | Spacer | Label2 | Slider2 | Reset2
-
-    Returns:
-        dpg.table context manager
-    """
-    return dpg.table(
-        header_row=False,
-        borders_innerV=False,
-        borders_outerV=False,
-        borders_innerH=False,
-        borders_outerH=False,
-        policy=dpg.mvTable_SizingFixedFit
-    )
-
-
-def add_dual_table_columns(slider_width=100, reset_width=30, spacer_width=20):
-    """Add columns for a dual-parameter table.
-
-    Must be called immediately after creating the table with create_dual_parameter_table().
-    Label columns auto-fit to text content; slider/reset columns are fixed-width.
+    Maps the mouse position from the DPG widget rectangle to logical image
+    pixels, accounting for stretching/scaling applied by DPG.
 
     Args:
-        slider_width: Width of slider columns
-        reset_width: Width of reset button columns
-        spacer_width: Width of spacer column between the two parameter sets
+        img_tag: DPG image widget tag (should be hovered for meaningful results)
+        img_w: Logical image width in pixels
+        img_h: Logical image height in pixels
+
+    Returns:
+        (px, py) in [0, img_w) x [0, img_h), or None if outside bounds.
     """
-    dpg.add_table_column()  # label 1 (auto-fit)
-    dpg.add_table_column(width_fixed=True, init_width_or_weight=slider_width)
-    dpg.add_table_column(width_fixed=True, init_width_or_weight=reset_width)
-    dpg.add_table_column(width_fixed=True, init_width_or_weight=spacer_width)
-    dpg.add_table_column()  # label 2 (auto-fit)
-    dpg.add_table_column(width_fixed=True, init_width_or_weight=slider_width)
-    dpg.add_table_column(width_fixed=True, init_width_or_weight=reset_width)
+    try:
+        mx, my = dpg.get_mouse_pos(local=False)
+        rect_min = dpg.get_item_rect_min(img_tag)
+        rect_max = dpg.get_item_rect_max(img_tag)
+        rw = rect_max[0] - rect_min[0]
+        rh = rect_max[1] - rect_min[1]
+        if rw < 1 or rh < 1:
+            return None
+        lx = (mx - rect_min[0]) / rw * img_w
+        ly = (my - rect_min[1]) / rh * img_h
+        if 0 <= lx < img_w and 0 <= ly < img_h:
+            return (lx, ly)
+    except Exception:
+        pass
+    return None
+
+
+def auto_resize_images(layout, margin_w=80, margin_h=200):
+    """Auto-resize DPG image widgets to fit the current viewport.
+
+    Distributes available viewport space among images based on their declared
+    column fractions and aspect ratios.
+
+    Args:
+        layout: list of (tag, col_fraction, aspect_ratio) tuples.
+            - tag: DPG image widget tag
+            - col_fraction: share of available width (0.5 = half, 1.0 = full)
+            - aspect_ratio: width/height ratio for this image
+
+    Images whose col_fractions sum to >1.0 implicitly wrap to the next row.
+    The available height is divided by the number of rows.
+
+    Example layouts:
+        Equal pair:  [("input", 0.5, W/H), ("output", 0.5, W/H)]
+        Single:      [("detection", 1.0, W/H)]
+        2x2 grid:    [("a", 0.5, 1.0), ("b", 0.5, 1.0),
+                       ("c", 0.5, 1.0), ("d", 0.5, 1.0)]
+    """
+    vp_w = dpg.get_viewport_client_width()
+    vp_h = dpg.get_viewport_client_height()
+    avail_w = max(vp_w - margin_w, 10)
+    avail_h = max(vp_h - margin_h, 10)
+
+    # Compute number of rows (col fractions that sum past 1.0 start a new row)
+    row_sum = 0.0
+    n_rows = 1
+    for _, frac, _ in layout:
+        row_sum += frac
+        if row_sum > 1.0 + 1e-6:
+            n_rows += 1
+            row_sum = frac
+
+    row_h = avail_h // max(n_rows, 1)
+
+    for tag, frac, aspect in layout:
+        if not dpg.does_item_exist(tag):
+            continue
+        img_w = int(avail_w * frac)
+        img_h = int(img_w / max(aspect, 0.01))
+        if img_h > row_h:
+            img_h = row_h
+            img_w = int(img_h * aspect)
+        dpg.configure_item(tag, width=max(img_w, 1), height=max(img_h, 1))
+
+

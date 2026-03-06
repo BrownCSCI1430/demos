@@ -9,13 +9,13 @@ import numpy as np
 from liveFilter import GUIDE_FILTER
 from utils.demo_kernels import (
     KERNEL_PRESETS, SIGMA_KERNELS, ZERO_DC_KERNELS,
-    create_kernel,
+    make_kernel,
 )
 
 # ── Module-level state ──
 _kernel_type = "Box Blur"
 _kernel_size = 3
-_kernel_values = create_kernel("Box Blur", 3)
+_kernel_values = make_kernel("Box Blur", 3)
 _gaussian_sigma = 1.0
 _hovered_cell = None
 
@@ -96,7 +96,7 @@ def _get_cell_from_xy(x, y):
 def _update_kernel_from_preset():
     """Rebuild kernel from current preset/size/sigma."""
     global _kernel_values
-    _kernel_values = create_kernel(_kernel_type, _kernel_size, sigma=_gaussian_sigma)
+    _kernel_values = make_kernel(_kernel_type, _kernel_size, sigma=_gaussian_sigma)
 
 
 # Custom presets list (adds "Custom" option)

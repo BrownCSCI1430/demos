@@ -4,18 +4,33 @@ Imports computation from the original demo (via vendor/), defines WEB_CONFIG
 and web_frame() for the generic adapter.
 """
 
+import numpy as np
+
 from livePlaneSweep import (
-    REF_IMG, OTHER_IMG,
-    M_REF, M_OTHER,
-    K_SHARED, _Rt_ref, _Rt_other,
+    cam, OvCam, _OV_K,
+    K_SHARED,
     IMG_W, IMG_H, OVERVIEW_SIZE,
-    LAM_MIN, LAM_MAX, LAM_TRUE,
+    LAM_MIN, LAM_MAX, LAM_TRUE, N_SWEEP, _LAM_CURVE,
     compute_H_lam, warp_other_to_ref, compute_ncc_score,
     draw_ncc_curve,
-    _OV_K, _OV_Rt,
     GUIDE_PLANE_SWEEP,
 )
-from utils.demo_3d import render_scene, make_frustum_mesh, make_axis_mesh
+from utils.demo_3d import (
+    render_scene, make_frustum_mesh, make_axis_mesh,
+    decompose_H,
+)
+
+# Pre-compute B, a from the default cameras (fixed for the web demo)
+_B, _A, _ = decompose_H(cam.M_ref, cam.M_other)
+
+# Pre-compute the NCC curve at startup (one sweep over all depth hypotheses)
+_NCC_CURVE = np.array([
+    compute_ncc_score(
+        cam.ref_img,
+        warp_other_to_ref(cam.other_img, compute_H_lam(_B, _A, lam), IMG_W, IMG_H),
+    )
+    for lam in _LAM_CURVE
+])
 
 
 WEB_CONFIG = {
@@ -52,21 +67,22 @@ def web_frame(state):
     lam = state["lam"]
 
     # Core plane-sweep computation (reuses original demo functions)
-    H = compute_H_lam(M_REF, M_OTHER, lam)
-    warped = warp_other_to_ref(OTHER_IMG, H, IMG_W, IMG_H)
-    ncc = compute_ncc_score(REF_IMG, warped)
+    H = compute_H_lam(_B, _A, lam)
+    warped = warp_other_to_ref(cam.other_img, H, IMG_W, IMG_H)
+    ncc = compute_ncc_score(cam.ref_img, warped)
 
     # 3D overview: two camera frustums + world axes
-    frustum_ref = make_frustum_mesh(K_SHARED, _Rt_ref, IMG_W, IMG_H,
+    ov_Rt = OvCam.make_Rt()
+    frustum_ref = make_frustum_mesh(K_SHARED, cam.Rt_ref, IMG_W, IMG_H,
                                     near=0.3, far=6.0)
-    frustum_other = make_frustum_mesh(K_SHARED, _Rt_other, IMG_W, IMG_H,
+    frustum_other = make_frustum_mesh(K_SHARED, cam.Rt_other, IMG_W, IMG_H,
                                       near=0.3, far=6.0)
     axes = make_axis_mesh(origin=(0, 0, 0), length=1.0)
     ov_img = render_scene(frustum_ref + frustum_other + axes,
-                          _OV_K, _OV_Rt, OVERVIEW_SIZE, OVERVIEW_SIZE)
+                          _OV_K, ov_Rt, OVERVIEW_SIZE, OVERVIEW_SIZE)
 
     # NCC curve with current position highlighted
-    curve = draw_ncc_curve(lam, ncc)
+    curve = draw_ncc_curve(lam, ncc, _NCC_CURVE)
 
     # Status text
     ncc_str = f"{ncc:.4f}" if ncc >= -0.5 else "invalid"
@@ -77,7 +93,7 @@ def web_frame(state):
     )
 
     return {
-        "ref": REF_IMG,
+        "ref": cam.ref_img,
         "warped": warped,
         "ncc_curve": curve,
         "overview": ov_img,

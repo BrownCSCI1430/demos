@@ -1,16 +1,13 @@
 """
-Shared utilities for CSCI 1430 computer vision demos.
-Contains image conversion, camera initialization, and frame acquisition functions.
+Image conversion and processing helpers for CSCI 1430 demos.
+
+DPG texture format conversion, geometric transforms, and brightness adjustment.
+For webcam capture / frame acquisition, see demo_webcam.py.
+For pinhole camera math / 3D rendering, see demo_3d.py.
 """
 
-import os
-import sys
 import cv2
 import numpy as np
-
-# Data directory (sibling to utils/)
-_UTILS_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(os.path.dirname(_UTILS_DIR), "data")
 
 
 def convert_cv_to_dpg(image, clip=False):
@@ -33,136 +30,6 @@ def convert_cv_to_dpg(image, clip=False):
 
     image = image.astype(np.float32) / 255.0
     return image.flatten()
-
-
-def resize_with_letterbox(img, target_width, target_height):
-    """Resize image to fit within target dimensions, maintaining aspect ratio with black bars.
-
-    Args:
-        img: OpenCV image (BGR)
-        target_width: Target width in pixels
-        target_height: Target height in pixels
-
-    Returns:
-        Resized image with letterboxing/pillarboxing as needed
-    """
-    h, w = img.shape[:2]
-    scale = min(target_width / w, target_height / h)
-    new_w, new_h = int(w * scale), int(h * scale)
-    resized = cv2.resize(img, (new_w, new_h))
-
-    # Create black canvas and center the image
-    canvas = np.zeros((target_height, target_width, 3), dtype=img.dtype)
-    x_offset = (target_width - new_w) // 2
-    y_offset = (target_height - new_h) // 2
-    canvas[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
-    return canvas
-
-
-def init_camera(camera_id=0, width=None, height=None):
-    """Initialize camera with platform-specific backend.
-
-    Args:
-        camera_id: Camera device ID (default 0)
-        width: Requested frame width (None for default)
-        height: Requested frame height (None for default)
-
-    Returns:
-        Tuple of (cap, frame_width, frame_height, use_camera)
-        - cap: cv2.VideoCapture object or None
-        - frame_width: Width of camera frames (0 if no camera)
-        - frame_height: Height of camera frames (0 if no camera)
-        - use_camera: True if camera is available and working
-    """
-    if os.name == 'nt':
-        cap = cv2.VideoCapture(camera_id, cv2.CAP_DSHOW)
-    else:
-        cap = cv2.VideoCapture(camera_id)
-
-    if cap.isOpened():
-        # Set resolution if specified
-        if width is not None:
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        if height is not None:
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-
-        ret, frame = cap.read()
-        if ret:
-            # Return actual resolution obtained (may differ from requested)
-            actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-            # Log resolution info
-            if width is not None and height is not None:
-                if actual_width != width or actual_height != height:
-                    print(f"Camera: Requested {width}x{height}, got {actual_width}x{actual_height}")
-                else:
-                    print(f"Camera: Using {actual_width}x{actual_height}")
-            else:
-                print(f"Camera: Default resolution {actual_width}x{actual_height}")
-
-            return cap, actual_width, actual_height, True
-        cap.release()
-
-    return None, 0, 0, False
-
-
-def load_fallback_image(data_dir=None, filename="cat.jpg"):
-    """Load fallback image for cat mode.
-
-    Args:
-        data_dir: Directory containing the fallback image (defaults to DATA_DIR)
-        filename: Name of the fallback image file
-
-    Returns:
-        Loaded image as numpy array
-
-    Exits:
-        If image cannot be loaded
-    """
-    if data_dir is None:
-        data_dir = DATA_DIR
-    path = os.path.join(data_dir, filename)
-    if not os.path.exists(path):
-        print(f"Error: Fallback image not found at {path}", file=sys.stderr)
-        sys.exit(1)
-
-    img = cv2.imread(path)
-    if img is None:
-        print("Error: Could not load fallback image", file=sys.stderr)
-        sys.exit(1)
-
-    return img
-
-
-def get_frame(cap, fallback_image, use_camera, cat_mode, target_size=None, letterbox=True):
-    """Get frame from camera or fallback image.
-
-    Args:
-        cap: cv2.VideoCapture object
-        fallback_image: Fallback image to use when camera unavailable
-        use_camera: Whether camera is available
-        cat_mode: Whether to use fallback image instead of camera
-        target_size: Optional (width, height) tuple to resize frame
-        letterbox: If True, use letterboxing for fallback; if False, stretch
-
-    Returns:
-        Frame as numpy array, or None if camera read failed
-    """
-    if use_camera and not cat_mode:
-        ret, frame = cap.read()
-        if not ret:
-            return None
-        if target_size:
-            frame = cv2.resize(frame, target_size)
-    else:
-        frame = fallback_image.copy()
-        if target_size:
-            if letterbox:
-                frame = resize_with_letterbox(frame, target_size[0], target_size[1])
-            else:
-                frame = cv2.resize(frame, target_size)
-    return frame
 
 
 def convert_cv_to_dpg_float(image):

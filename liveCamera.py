@@ -13,7 +13,7 @@ import dearpygui.dearpygui as dpg
 from utils.demo_3d import (
     build_intrinsic, build_rotation, build_extrinsic, euler_from_rotation,
     fov_to_focal, make_lookat_Rt,
-    render_scene, create_default_scene,
+    render_scene, make_default_scene,
     make_frustum_mesh, make_axis_mesh, make_camera_axes_mesh,
     format_matrix,
 )
@@ -24,6 +24,8 @@ from utils.demo_ui import (
     create_parameter_table, add_parameter_row,
     add_global_controls, control_panel,
     poll_collapsible_panels,
+    make_camera_callback,
+    create_blank_texture,
 )
 
 
@@ -120,7 +122,7 @@ class State:
 state = State()
 
 # Scene (created once)
-scene_meshes = create_default_scene()
+scene_meshes = make_default_scene()
 
 # Overview camera (fixed)
 overview_Rt = make_lookat_Rt(
@@ -302,16 +304,13 @@ def main():
 
     with dpg.texture_registry(tag="texture_registry"):
         cam_w, cam_h = DEFAULTS["img_w"], DEFAULTS["img_h"]
-        blank_cam = [0.0] * (cam_w * cam_h * 4)
-        dpg.add_raw_texture(cam_w, cam_h, blank_cam,
-                            format=dpg.mvFormat_Float_rgba, tag=state._cam_texture_tag)
-        blank_ov = [0.0] * (OVERVIEW_SIZE * OVERVIEW_SIZE * 4)
-        dpg.add_raw_texture(OVERVIEW_SIZE, OVERVIEW_SIZE, blank_ov,
-                            format=dpg.mvFormat_Float_rgba, tag="overview_texture")
+        create_blank_texture(cam_w, cam_h, state._cam_texture_tag)
+        create_blank_texture(OVERVIEW_SIZE, OVERVIEW_SIZE, "overview_texture")
 
     with dpg.window(label="3D Camera Demo", tag="main_window"):
         add_global_controls(
             DEFAULTS, state,
+            camera_callback=make_camera_callback(state),
             reset_extra=_camera_extra_reset,
             guide=GUIDE_CAMERA, guide_title="3D Camera",
         )
@@ -517,23 +516,13 @@ def main():
             dpg.set_value("rt_text", _RT_SYMBOLIC)
             dpg.set_value("m_text", _M_SYMBOLIC)
         else:
-            dpg.set_value("k_text", _fmt_mat(K))
-            dpg.set_value("rt_text", _fmt_mat(Rt))
-            dpg.set_value("m_text", _fmt_mat(M))
+            dpg.set_value("k_text", format_matrix(K))
+            dpg.set_value("rt_text", format_matrix(Rt))
+            dpg.set_value("m_text", format_matrix(M))
 
         dpg.render_dearpygui_frame()
 
     dpg.destroy_context()
-
-
-def _fmt_mat(mat):
-    """Format matrix for display as aligned text."""
-    rows, cols = mat.shape
-    lines = []
-    for r in range(rows):
-        cells = " ".join(f"{mat[r, c]:8.2f}" for c in range(cols))
-        lines.append(f"[ {cells} ]")
-    return "\n".join(lines)
 
 
 # Symbolic (algebraic) matrix templates

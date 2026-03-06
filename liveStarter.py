@@ -11,10 +11,11 @@ import cv2
 import numpy as np
 import dearpygui.dearpygui as dpg
 
-from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
+from utils.demo_utils import convert_cv_to_dpg
+from utils.demo_webcam import init_camera_demo, cleanup_camera_demo, get_frame
 from utils.demo_ui import (
-    add_global_controls, load_fonts, setup_viewport, make_state_updater,
-    poll_collapsible_panels,
+    add_global_controls, setup_viewport, make_state_updater, make_camera_callback,
+    poll_collapsible_panels, auto_resize_images, create_blank_texture,
 )
 
 # Default values
@@ -55,32 +56,10 @@ class State:
 state = State()
 
 
+_IMAGE_LAYOUT = None  # set after camera init
+
 def update_image_sizes():
-    """Update image display sizes based on viewport dimensions"""
-    vp_width = dpg.get_viewport_client_width()
-    vp_height = dpg.get_viewport_client_height()
-
-    available_width = vp_width - 80
-    available_height = vp_height - 200
-
-    aspect_ratio = state.frame_width / state.frame_height
-
-    # Each image gets half the available width
-    img_width = int(available_width / 2)
-    img_height = int(img_width / aspect_ratio)
-
-    if img_height > available_height:
-        img_height = available_height
-        img_width = int(img_height * aspect_ratio)
-
-    if dpg.does_item_exist("input_image"):
-        dpg.configure_item("input_image", width=img_width, height=img_height)
-    if dpg.does_item_exist("output_image"):
-        dpg.configure_item("output_image", width=img_width, height=img_height)
-
-
-def on_viewport_resize():
-    update_image_sizes()
+    auto_resize_images(_IMAGE_LAYOUT, margin_w=80, margin_h=200)
 
 
 def process_frame(img):
@@ -141,39 +120,14 @@ def process_frame(img):
 
 
 def main():
-    # Parse command-line arguments
-    import argparse
-    parser = argparse.ArgumentParser(description='Starter Template Demo')
-    parser.add_argument('--width', type=int, default=None, help='Camera width')
-    parser.add_argument('--height', type=int, default=None, help='Camera height')
-    args = parser.parse_args()
-
-    # Initialize camera with optional resolution
-    state.cap, state.frame_width, state.frame_height, state.use_camera = \
-        init_camera(width=args.width, height=args.height)
-
-    if not state.use_camera:
-        print("Warning: Could not open camera, using fallback image")
-
-    # Load fallback image
-    state.fallback_image = load_fallback_image()
-    if not state.use_camera:
-        state.frame_height, state.frame_width = state.fallback_image.shape[:2]
-        state.cat_mode = True
-
-    frame_width, frame_height = state.frame_width, state.frame_height
-
-    # Initialize Dear PyGui
-    dpg.create_context()
-
-    load_fonts()
+    global _IMAGE_LAYOUT
+    frame_width, frame_height = init_camera_demo(state, "Starter Template Demo")
+    aspect = frame_width / frame_height
+    _IMAGE_LAYOUT = [("input_image", 0.5, aspect), ("output_image", 0.5, aspect)]
 
     with dpg.texture_registry():
-        blank_data = [0.0] * (frame_width * frame_height * 4)
-        dpg.add_raw_texture(frame_width, frame_height, blank_data,
-                            format=dpg.mvFormat_Float_rgba, tag="input_texture")
-        dpg.add_raw_texture(frame_width, frame_height, blank_data,
-                            format=dpg.mvFormat_Float_rgba, tag="output_texture")
+        create_blank_texture(frame_width, frame_height, "input_texture")
+        create_blank_texture(frame_width, frame_height, "output_texture")
 
     # Create main window
     with dpg.window(label="Starter Demo", tag="main_window"):
@@ -182,6 +136,7 @@ def main():
             DEFAULTS, state,
             cat_mode_callback=make_state_updater(state, "cat_mode"),
             pause_callback=make_state_updater(state, "pause"),
+            camera_callback=make_camera_callback(state),
             guide=GUIDE_STARTER, guide_title="Starter Template",
         )
 
@@ -209,7 +164,7 @@ def main():
     # Setup viewport
     initial_width = int(frame_width * 2 + 120)
     setup_viewport("CSCI 1430 - Starter Demo", initial_width, frame_height + 200,
-                   "main_window", on_viewport_resize, DEFAULTS["ui_scale"])
+                   "main_window", update_image_sizes, DEFAULTS["ui_scale"])
 
     update_image_sizes()
 
@@ -229,10 +184,7 @@ def main():
 
         dpg.render_dearpygui_frame()
 
-    # Cleanup
-    if state.use_camera and state.cap is not None:
-        state.cap.release()
-    dpg.destroy_context()
+    cleanup_camera_demo(state)
 
 
 if __name__ == "__main__":

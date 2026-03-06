@@ -10,11 +10,12 @@ import dearpygui.dearpygui as dpg
 from skimage import img_as_float
 from skimage.color import rgb2gray
 
-from utils.demo_utils import init_camera, load_fallback_image, convert_cv_to_dpg_float, crop_to_square, get_frame
+from utils.demo_utils import convert_cv_to_dpg_float, crop_to_square
+from utils.demo_webcam import init_camera_demo, cleanup_camera_demo, get_frame
 from utils.demo_ui import (
-    load_fonts, setup_viewport, make_state_updater, make_reset_callback,
+    setup_viewport, make_state_updater, make_reset_callback, make_camera_callback,
     add_global_controls, control_panel, create_parameter_table, add_parameter_row,
-    poll_collapsible_panels,
+    poll_collapsible_panels, auto_resize_images, create_blank_texture,
 )
 
 # Default values
@@ -103,22 +104,13 @@ class State:
 state = State()
 
 
+_IMAGE_LAYOUT = [
+    ("input_image", 0.5, 1.0), ("inverse_image", 0.5, 1.0),
+    ("amplitude_image", 0.5, 1.0), ("phase_image", 0.5, 1.0),
+]
+
 def update_image_sizes():
-    vp_width = dpg.get_viewport_client_width()
-    vp_height = dpg.get_viewport_client_height()
-
-    available_width = vp_width - 50
-    available_height = vp_height - 230
-
-    size = min(available_width // 2, available_height // 2)
-
-    for tag in ["input_image", "inverse_image", "amplitude_image", "phase_image"]:
-        if dpg.does_item_exist(tag):
-            dpg.configure_item(tag, width=size, height=size)
-
-
-def on_viewport_resize():
-    update_image_sizes()
+    auto_resize_images(_IMAGE_LAYOUT, margin_w=50, margin_h=230)
 
 
 def update_mode(sender, value):
@@ -246,37 +238,16 @@ def process_fft(im):
 
 
 def main():
-    # Parse command-line arguments
-    import argparse
-    parser = argparse.ArgumentParser(description='Fourier Transform Demo')
-    parser.add_argument('--width', type=int, default=320, help='Camera width')
-    parser.add_argument('--height', type=int, default=240, help='Camera height')
-    args = parser.parse_args()
-
-    # Initialize camera with optional resolution
-    state.cap, _, _, state.use_camera = init_camera(width=args.width, height=args.height)
-
-    if not state.use_camera:
-        print("Warning: No camera found, using fallback image")
-
-    # Load fallback image
-    state.fallback_image = load_fallback_image()
-    if not state.use_camera:
-        state.cat_mode = True
+    init_camera_demo(state, "Fourier Transform Demo")
 
     size = state.frame_size
     dsize = state.display_size
 
-    dpg.create_context()
-
-    load_fonts()
-
     with dpg.texture_registry():
-        blank_data = [0.0] * (dsize * dsize * 4)
-        dpg.add_raw_texture(dsize, dsize, blank_data, format=dpg.mvFormat_Float_rgba, tag="input_texture")
-        dpg.add_raw_texture(dsize, dsize, blank_data, format=dpg.mvFormat_Float_rgba, tag="inverse_texture")
-        dpg.add_raw_texture(dsize, dsize, blank_data, format=dpg.mvFormat_Float_rgba, tag="amplitude_texture")
-        dpg.add_raw_texture(dsize, dsize, blank_data, format=dpg.mvFormat_Float_rgba, tag="phase_texture")
+        create_blank_texture(dsize, dsize, "input_texture")
+        create_blank_texture(dsize, dsize, "inverse_texture")
+        create_blank_texture(dsize, dsize, "amplitude_texture")
+        create_blank_texture(dsize, dsize, "phase_texture")
 
     with dpg.window(label="Fourier Transform Demo", tag="main_window"):
         # Global controls row
@@ -291,6 +262,7 @@ def main():
             DEFAULTS, state,
             cat_mode_callback=make_state_updater(state, "cat_mode"),
             pause_callback=make_state_updater(state, "pause"),
+            camera_callback=make_camera_callback(state),
             reset_extra=_extra_reset,
             guide=GUIDE_FOURIER, guide_title="Fourier Transform",
         )
@@ -410,7 +382,7 @@ def main():
     # Setup viewport
     setup_viewport("CSCI 1430 - Fourier Transform",
                    max(size * 2 + 100, 650), size * 2 + 280,
-                   "main_window", on_viewport_resize, DEFAULTS["ui_scale"])
+                   "main_window", update_image_sizes, DEFAULTS["ui_scale"])
     dpg.maximize_viewport()
 
     update_image_sizes()
@@ -448,9 +420,7 @@ def main():
 
         dpg.render_dearpygui_frame()
 
-    if state.use_camera and state.cap is not None:
-        state.cap.release()
-    dpg.destroy_context()
+    cleanup_camera_demo(state)
 
 
 if __name__ == "__main__":

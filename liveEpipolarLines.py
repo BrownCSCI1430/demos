@@ -35,7 +35,8 @@ from utils.demo_3d import (
     build_intrinsic, make_lookat_Rt,
     fov_to_focal, render_scene,
     make_frustum_mesh, make_axis_mesh,
-    make_sphere, create_default_scene,
+    make_sphere, make_default_scene,
+    compute_F_from_cameras, epipolar_line_endpoints,
 )
 from utils.demo_utils import convert_cv_to_dpg
 from utils.demo_ui import (
@@ -43,6 +44,9 @@ from utils.demo_ui import (
     setup_viewport,
     add_global_controls, control_panel,
     poll_collapsible_panels,
+    get_image_pixel_coords,
+    make_camera_callback,
+    create_blank_texture,
 )
 
 
@@ -54,7 +58,7 @@ IMG_W, IMG_H   = 420, 380
 OVERVIEW_SIZE  = 420
 DEFAULTS = {"ui_scale": 1.5}
 
-GUIDE_TRIANGULATION = [
+GUIDE_EPIPOLAR = [
     {"title": "Triangulation from two views",
      "body": "Each 2D point defines a ray from its camera center through the "
              "image plane. Two rays from different cameras intersect at the 3D "
@@ -95,7 +99,7 @@ _OV_K  = build_intrinsic(fov_to_focal(50, OVERVIEW_SIZE), fov_to_focal(50, OVERV
                           0, OVERVIEW_SIZE / 2, OVERVIEW_SIZE / 2)
 
 # Render scene once (used as the static background for both camera views)
-_SCENE = create_default_scene()
+_SCENE = make_default_scene()
 
 
 # =============================================================================
@@ -140,56 +144,6 @@ def reprojection_error(M, P):
     Ph = np.append(P, 1.0)
     p = M @ Ph
     return p[:2] / p[2]
-
-
-def compute_F_from_cameras(M1, M2):
-    """Compute fundamental matrix F from two camera matrices.
-
-    F = [e2]_x @ M2 @ pinv(M1)
-    where e2 = M2 @ C1 is the epipole in image 2.
-    """
-    A1 = M1[:, :3]
-    C1 = np.linalg.solve(A1, -M1[:, 3])
-    C1h = np.append(C1, 1.0)
-
-    e2 = M2 @ C1h    # epipole in image 2, shape (3,)
-    e2x = np.array([
-        [0,      -e2[2],  e2[1]],
-        [e2[2],   0,     -e2[0]],
-        [-e2[1],  e2[0],  0    ],
-    ])
-
-    F = e2x @ M2 @ np.linalg.pinv(M1)
-    return F
-
-
-def epipolar_line_endpoints(l, img_w, img_h):
-    """Return two endpoints of line l=[a,b,c] (ax+by+c=0) clipped to image."""
-    a, b, c = l
-    pts = []
-    if abs(b) > 1e-6:
-        # Intersect x=0 and x=img_w-1
-        y0 = -c / b
-        y1 = -(c + a * (img_w - 1)) / b
-        pts.append((0, int(y0)))
-        pts.append((img_w - 1, int(y1)))
-    if abs(a) > 1e-6:
-        # Intersect y=0 and y=img_h-1
-        x0 = -c / a
-        x1 = -(c + b * (img_h - 1)) / a
-        pts.append((int(x0), 0))
-        pts.append((int(x1), img_h - 1))
-
-    # Keep the pair that spans the image most widely
-    if len(pts) >= 2:
-        best_p1, best_p2, best_d = pts[0], pts[1], 0
-        for i in range(len(pts)):
-            for j in range(i + 1, len(pts)):
-                d = abs(pts[i][0] - pts[j][0]) + abs(pts[i][1] - pts[j][1])
-                if d > best_d:
-                    best_p1, best_p2, best_d = pts[i], pts[j], d
-        return best_p1, best_p2
-    return None, None
 
 
 # Pre-compute F
@@ -253,27 +207,9 @@ def draw_view(base_img, click_px, epipolar=None, label=""):
 # Click Detection
 # =============================================================================
 
-def _get_local_coords(img_tag, mx, my):
-    """Convert global mouse coordinates to local image pixel coordinates."""
-    try:
-        rect_min = dpg.get_item_rect_min(img_tag)
-        rect_max = dpg.get_item_rect_max(img_tag)
-        rw = rect_max[0] - rect_min[0]
-        rh = rect_max[1] - rect_min[1]
-        if rw < 1 or rh < 1:
-            return None
-        lx = (mx - rect_min[0]) / rw * IMG_W
-        ly = (my - rect_min[1]) / rh * IMG_H
-        if 0 <= lx < IMG_W and 0 <= ly < IMG_H:
-            return (lx, ly)
-    except Exception:
-        pass
-    return None
-
-
 def handle_clicks():
     """Process mouse clicks and update state."""
-    if dpg.is_mouse_button_clicked(1):   # right click → clear
+    if dpg.is_mouse_button_clicked(1):   # right click -> clear
         state.click_left  = None
         state.click_right = None
         state.tri_point   = None
@@ -281,9 +217,7 @@ def handle_clicks():
         return
 
     if dpg.is_mouse_button_clicked(0):   # left click
-        mx, my = dpg.get_mouse_pos(local=False)
-
-        coords_l = _get_local_coords("left_img",  mx, my)
+        coords_l = get_image_pixel_coords("left_img", IMG_W, IMG_H)
         if coords_l is not None:
             state.click_left  = coords_l
             state.click_right = None
@@ -291,7 +225,7 @@ def handle_clicks():
             state.tri_valid   = False
             return
 
-        coords_r = _get_local_coords("right_img", mx, my)
+        coords_r = get_image_pixel_coords("right_img", IMG_W, IMG_H)
         if coords_r is not None and state.click_left is not None:
             state.click_right = coords_r
             # Triangulate
@@ -313,13 +247,9 @@ def main():
     load_fonts()
 
     with dpg.texture_registry(tag="texture_registry"):
-        blank = [0.0] * (IMG_W * IMG_H * 4)
         for tag in ["left_tex", "right_tex"]:
-            dpg.add_raw_texture(IMG_W, IMG_H, list(blank),
-                                format=dpg.mvFormat_Float_rgba, tag=tag)
-        blank_ov = [0.0] * (OVERVIEW_SIZE * OVERVIEW_SIZE * 4)
-        dpg.add_raw_texture(OVERVIEW_SIZE, OVERVIEW_SIZE, blank_ov,
-                            format=dpg.mvFormat_Float_rgba, tag="overview_tex")
+            create_blank_texture(IMG_W, IMG_H, tag)
+        create_blank_texture(OVERVIEW_SIZE, OVERVIEW_SIZE, "overview_tex")
 
     with dpg.window(label="Epipolar Lines Demo", tag="main_window"):
 
@@ -332,8 +262,9 @@ def main():
 
         add_global_controls(
             DEFAULTS, state,
+            camera_callback=make_camera_callback(state),
             reset_extra=_clear_clicks,
-            guide=GUIDE_TRIANGULATION, guide_title="Sparse Triangulation",
+            guide=GUIDE_EPIPOLAR, guide_title="Epipolar Lines & Triangulation",
         )
 
         dpg.add_separator()

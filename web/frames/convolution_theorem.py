@@ -8,7 +8,7 @@ import cv2
 
 from liveConvolutionTheorem import GUIDE_CONV_THEOREM
 from utils.demo_fft import process_convolution, process_deconvolution, visualize_fft_amplitude
-from utils.demo_kernels import create_kernel, pad_kernel_to_image_size
+from utils.demo_kernels import make_kernel, pad_kernel_to_image_size
 
 # Module-level state
 _random_kernel = None
@@ -16,7 +16,7 @@ _random_kernel_size = None
 
 KERNELS = ["Box", "Gaussian", "Sharpen", "Edge Horizontal", "Edge Vertical", "Random"]
 
-# Map display names to create_kernel names
+# Map display names to make_kernel names
 _KERNEL_MAP = {
     "Box": "Box Blur",
     "Gaussian": "Gaussian",
@@ -150,7 +150,7 @@ def web_frame(state):
         kernel = _create_random_kernel(ksize)
     else:
         mapped_name = _KERNEL_MAP.get(ktype, ktype)
-        kernel = create_kernel(mapped_name, ksize, sigma=state["sigma"])
+        kernel = make_kernel(mapped_name, ksize, sigma=state["sigma"])
 
     # Pad kernel to image size
     kernel_padded = pad_kernel_to_image_size(kernel, im.shape)

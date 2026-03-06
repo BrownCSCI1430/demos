@@ -9,10 +9,10 @@ from liveCamera import (
     compute_camera_frame, on_reference_frame_change,
     scene_meshes, overview_K, overview_Rt,
     DEFAULTS, OVERVIEW_SIZE, state as cam_state,
-    _fmt_mat, _K_SYMBOLIC, _RT_SYMBOLIC, _M_SYMBOLIC,
+    _K_SYMBOLIC, _RT_SYMBOLIC, _M_SYMBOLIC,
     GUIDE_CAMERA,
 )
-from utils.demo_3d import euler_from_rotation
+from utils.demo_3d import euler_from_rotation, format_matrix
 
 WEB_CONFIG = {
     "title": "3D Camera",
@@ -191,9 +191,9 @@ def web_frame(state):
         rt_str = _RT_SYMBOLIC
         m_str = _M_SYMBOLIC
     else:
-        k_str = _fmt_mat(K)
-        rt_str = _fmt_mat(Rt)
-        m_str = _fmt_mat(M)
+        k_str = format_matrix(K)
+        rt_str = format_matrix(Rt)
+        m_str = format_matrix(M)
 
     status = (
         f"Camera View ({iw}x{ih})  |  f_x={fx:.1f}px  f_y={fy:.1f}px\n\n"

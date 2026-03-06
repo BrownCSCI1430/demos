@@ -7,7 +7,7 @@ import os
 import sys
 import subprocess
 import dearpygui.dearpygui as dpg
-from utils.demo_ui import load_fonts, _ui_scale_to_gfs
+from utils.demo_ui import load_fonts, ui_scale_to_gfs, UI_SCALES
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -77,6 +77,11 @@ SECTIONS = [
             "description": "Click correspondences in two camera views to see epipolar lines and triangulate 3D points. Cheirality check shown in green (valid) or red (behind camera). Uses the fundamental matrix and 4\u00d74 DLT system (HW3 Tasks 4\u20135).",
             "default_resolution": "420x380",
         },
+        "F vs H(\u03bb)": {
+            "file": "liveFvsH.py",
+            "description": "Compare fundamental matrix F (epipolar lines) with depth homography H(\u03bb) (projected points). Click scene points and sweep depth to see how H(\u03bb) resolves F\u2019s line constraint to specific correspondences. Shows SVD of F vs E.",
+            "default_resolution": "350x350",
+        },
     }),
     ("Object Detection", (255, 150, 150), {
         "HOG Person Detection": {
@@ -105,10 +110,8 @@ class LauncherState:
 
 state = LauncherState()
 
-UI_SCALES = ["1.0", "1.25", "1.5", "1.75", "2.0", "2.5", "3.0"]
-
 def update_ui_scale(sender, value):
-    dpg.set_global_font_scale(_ui_scale_to_gfs(value))
+    dpg.set_global_font_scale(ui_scale_to_gfs(value))
 
 def select_demo(sender, app_data, user_data):
     """Handle demo selection"""
@@ -265,7 +268,7 @@ def main():
     dpg.show_viewport()
     dpg.set_primary_window("main_window", True)
 
-    dpg.set_global_font_scale(_ui_scale_to_gfs(DEFAULT_UI_SCALE))
+    dpg.set_global_font_scale(ui_scale_to_gfs(DEFAULT_UI_SCALE))
 
     while dpg.is_dearpygui_running():
         dpg.render_dearpygui_frame()

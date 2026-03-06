@@ -12,13 +12,14 @@ import cv2
 import numpy as np
 import dearpygui.dearpygui as dpg
 
-from utils.demo_utils import convert_cv_to_dpg, init_camera, load_fallback_image, get_frame
+from utils.demo_utils import convert_cv_to_dpg
+from utils.demo_webcam import init_camera_demo, cleanup_camera_demo, get_frame
 from utils.demo_ui import (
-    load_fonts, setup_viewport, make_state_updater, add_global_controls, make_reset_callback,
-    control_panel, create_parameter_table, add_parameter_row,
-    poll_collapsible_panels,
+    setup_viewport, make_state_updater, add_global_controls, make_reset_callback,
+    make_camera_callback, control_panel, create_parameter_table, add_parameter_row,
+    poll_collapsible_panels, auto_resize_images, create_blank_texture,
 )
-from utils.demo_kernels import KERNEL_PRESETS as _KERNEL_PRESETS, SIGMA_KERNELS, ZERO_DC_KERNELS, create_kernel, resize_kernel
+from utils.demo_kernels import KERNEL_PRESETS as _KERNEL_PRESETS, SIGMA_KERNELS, ZERO_DC_KERNELS, make_kernel, resize_kernel
 
 # Default values
 DEFAULTS = {
@@ -91,10 +92,10 @@ class State:
 state = State()
 
 
-def create_kernel_preset(preset_name, size, sigma=1.0):
+def make_kernel_preset(preset_name, size, sigma=1.0):
     """Create a kernel based on preset name.
 
-    Wraps the shared create_kernel function but handles "Custom" specially
+    Wraps the shared make_kernel function but handles "Custom" specially
     to preserve user edits in the interactive editor.
     """
     size = size if size % 2 == 1 else size + 1
@@ -109,7 +110,7 @@ def create_kernel_preset(preset_name, size, sigma=1.0):
         return kernel
 
     # Use the shared kernel creation function
-    return create_kernel(preset_name, size, sigma)
+    return make_kernel(preset_name, size, sigma)
 
 
 def value_to_color(value, min_val, max_val):
@@ -246,6 +247,16 @@ def get_cell_from_mouse(mouse_pos, drawlist_pos):
     return None
 
 
+def _zero_cell(row, col):
+    """Zero out a single kernel cell and update display."""
+    state.kernel_values[row, col] = 0.0
+    if state.kernel_type != "Custom":
+        state.kernel_type = "Custom"
+        if dpg.does_item_exist("kernel_type_combo"):
+            dpg.set_value("kernel_type_combo", "Custom")
+    draw_kernel_editor()
+
+
 def modify_cell(row, col, delta):
     """Modify a cell value by delta."""
     if state.kernel_values is None:
@@ -273,14 +284,14 @@ def update_kernel_size(sender, value):
         state.kernel_values = resize_kernel(state.kernel_values, new_size)
     else:
         # Recreate kernel with new size
-        state.kernel_values = create_kernel_preset(state.kernel_type, new_size, state.gaussian_sigma)
+        state.kernel_values = make_kernel_preset(state.kernel_type, new_size, state.gaussian_sigma)
     draw_kernel_editor()
 
 
 def update_kernel_type(sender, value):
     """Handle kernel type change."""
     state.kernel_type = value
-    state.kernel_values = create_kernel_preset(value, state.kernel_size, state.gaussian_sigma)
+    state.kernel_values = make_kernel_preset(value, state.kernel_size, state.gaussian_sigma)
     draw_kernel_editor()
 
     # Show/hide sigma slider based on kernel type
@@ -292,38 +303,16 @@ def update_gaussian_sigma(sender, value):
     """Handle sigma change for Gaussian/LoG kernels."""
     state.gaussian_sigma = value
     if state.kernel_type in SIGMA_KERNELS:
-        state.kernel_values = create_kernel_preset(state.kernel_type, state.kernel_size, value)
+        state.kernel_values = make_kernel_preset(state.kernel_type, state.kernel_size, value)
         draw_kernel_editor()
 
 
 def update_image_sizes():
     """Update image display sizes based on viewport dimensions."""
-    vp_width = dpg.get_viewport_client_width()
-    vp_height = dpg.get_viewport_client_height()
-
-    available_width = vp_width - state.kernel_editor_size - 100
-    available_height = vp_height - 280
-
-    aspect_ratio = state.frame_width / state.frame_height if state.frame_height > 0 else 1.33
-
-    filtered_width = int(available_width / (1 + state.input_ratio))
-    filtered_height = int(filtered_width / aspect_ratio)
-
-    if filtered_height > available_height:
-        filtered_height = available_height
-        filtered_width = int(filtered_height * aspect_ratio)
-
-    input_width = int(filtered_width * state.input_ratio)
-    input_height = int(filtered_height * state.input_ratio)
-
-    if dpg.does_item_exist("input_image"):
-        dpg.configure_item("input_image", width=input_width, height=input_height)
-    if dpg.does_item_exist("filtered_image"):
-        dpg.configure_item("filtered_image", width=filtered_width, height=filtered_height)
-
-
-def on_viewport_resize():
-    update_image_sizes()
+    r = state.input_ratio
+    aspect = state.frame_width / state.frame_height if state.frame_height > 0 else 1.33
+    layout = [("input_image", r / (1 + r), aspect), ("filtered_image", 1 / (1 + r), aspect)]
+    auto_resize_images(layout, margin_w=state.kernel_editor_size + 100, margin_h=280)
 
 
 def process_frame():
@@ -349,41 +338,14 @@ def process_frame():
 
 
 def main():
-    # Parse command-line arguments
-    import argparse
-    parser = argparse.ArgumentParser(description='Image Filtering Demo')
-    parser.add_argument('--width', type=int, default=None, help='Camera width')
-    parser.add_argument('--height', type=int, default=None, help='Camera height')
-    args = parser.parse_args()
-
-    # Initialize camera with optional resolution
-    state.cap, state.frame_width, state.frame_height, state.use_camera = \
-        init_camera(width=args.width, height=args.height)
-
-    if not state.use_camera:
-        print("Warning: Could not open camera, using fallback image")
-
-    # Load fallback image
-    state.fallback_image = load_fallback_image()
-    if not state.use_camera:
-        state.frame_height, state.frame_width = state.fallback_image.shape[:2]
-        state.cat_mode = True
+    frame_width, frame_height = init_camera_demo(state, "Image Filtering Demo")
 
     # Initialize kernel
-    state.kernel_values = create_kernel_preset(state.kernel_type, state.kernel_size, state.gaussian_sigma)
-
-    frame_width, frame_height = state.frame_width, state.frame_height
-
-    dpg.create_context()
-
-    load_fonts()
+    state.kernel_values = make_kernel_preset(state.kernel_type, state.kernel_size, state.gaussian_sigma)
 
     with dpg.texture_registry():
-        blank_data = [0.0] * (frame_width * frame_height * 4)
-        dpg.add_raw_texture(frame_width, frame_height, blank_data,
-                            format=dpg.mvFormat_Float_rgba, tag="input_texture")
-        dpg.add_raw_texture(frame_width, frame_height, blank_data,
-                            format=dpg.mvFormat_Float_rgba, tag="filtered_texture")
+        create_blank_texture(frame_width, frame_height, "input_texture")
+        create_blank_texture(frame_width, frame_height, "filtered_texture")
 
     with dpg.window(label="Interactive Filter Demo", tag="main_window"):
         def _extra_reset():
@@ -393,6 +355,7 @@ def main():
             DEFAULTS, state,
             cat_mode_callback=make_state_updater(state, "cat_mode"),
             pause_callback=make_state_updater(state, "pause"),
+            camera_callback=make_camera_callback(state),
             reset_extra=_extra_reset,
             guide=GUIDE_FILTER, guide_title="Image Filtering",
         )
@@ -467,7 +430,7 @@ def main():
     initial_width = int(frame_width * (1 + state.input_ratio) + state.kernel_editor_size + 150)
     setup_viewport("CSCI 1430 - Interactive Filter Demo",
                    initial_width, frame_height + 350,
-                   "main_window", on_viewport_resize, DEFAULTS["ui_scale"])
+                   "main_window", update_image_sizes, DEFAULTS["ui_scale"])
 
     update_image_sizes()
     draw_kernel_editor()
@@ -496,22 +459,14 @@ def main():
 
                     if dpg.is_mouse_button_clicked(dpg.mvMouseButton_Left):
                         if ctrl_held:
-                            state.kernel_values[cell[0], cell[1]] = 0
-                            if state.kernel_type != "Custom":
-                                state.kernel_type = "Custom"
-                                dpg.set_value("kernel_type_combo", "Custom")
-                            draw_kernel_editor()
+                            _zero_cell(cell[0], cell[1])
                         else:
                             delta = 1.0 if shift_held else 0.1
                             modify_cell(cell[0], cell[1], delta)
 
                     elif dpg.is_mouse_button_clicked(dpg.mvMouseButton_Right):
                         if ctrl_held:
-                            state.kernel_values[cell[0], cell[1]] = 0
-                            if state.kernel_type != "Custom":
-                                state.kernel_type = "Custom"
-                                dpg.set_value("kernel_type_combo", "Custom")
-                            draw_kernel_editor()
+                            _zero_cell(cell[0], cell[1])
                         else:
                             delta = -1.0 if shift_held else -0.1
                             modify_cell(cell[0], cell[1], delta)
@@ -539,9 +494,7 @@ def main():
 
         dpg.render_dearpygui_frame()
 
-    if state.use_camera and state.cap is not None:
-        state.cap.release()
-    dpg.destroy_context()
+    cleanup_camera_demo(state)
 
 
 if __name__ == "__main__":
